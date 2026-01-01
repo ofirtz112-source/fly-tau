@@ -1,0 +1,64 @@
+from flask import Flask, redirect, render_template, request
+import mysql.connector
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+
+@app.route('/find_order', methods=['GET', 'POST'])
+def find_order():
+    if request.method == 'GET':
+        return render_template('find_order.html')
+    
+    if request.method == 'POST':
+        order_code = request.form.get('order_code')
+        email = request.form.get('email')
+        order = get_order_from_db(order_code, email)
+
+        if not order:
+            return render_template('find_order.html', error="Order does not exist")
+
+        flight_time = order['departure_time']
+        can_cancel = datetime.now() < (flight_time - timedelta(hours=36))
+        
+        total_price = order['total_price']
+        refund_amount = total_price * 0.95
+        
+        return render_template('order_details.html', 
+                               order=order, 
+                               can_cancel=can_cancel, 
+                               refund=refund_amount)
+
+def get_order_from_db(order_code, email):
+    try:
+        db = mysql.connector.connect(
+            host="localhost",
+            user="your_user",
+            password="your_password",
+            database="flytau_db"
+        )
+        cursor = db.cursor(dictionary=True)
+
+        query = """
+            SELECT 
+              o.order_id,
+              o.order_code, 
+              o.total_price, 
+              f.departure_time, 
+              f.origin_airport, 
+              f.destination_airport,
+              GROUP_CONCAT(s.seat_id) AS seats
+            FROM Orders o
+            JOIN Flights f ON o.flight_id = f.flight_id
+            JOIN Order_Seats os ON o.order_id = os.order_id
+            JOIN Seats s ON os.seat_id = s.seat_id
+            WHERE o.order_code = %s AND o.email = %s
+            GROUP BY o.order_id;
+        """
+        
+        cursor.execute(query, (order_code, email))
+        order = cursor.fetchone()
+        db.close()
+        return order
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
