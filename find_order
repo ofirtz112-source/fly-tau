@@ -32,8 +32,8 @@ def get_order_from_db(order_code, email):
     try:
         db = mysql.connector.connect(
             host="localhost",
-            user="your_user",
-            password="your_password",
+            user="root",
+            password="root",
             database="flytau_db"
         )
         cursor = db.cursor(dictionary=True)
