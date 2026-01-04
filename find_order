@@ -1,64 +1,122 @@
-from flask import Flask, redirect, render_template, request
-import mysql.connector
+from flask import Flask, render_template, request, session
+import mysql.connector  # לחיבור לבסיס הנתונים כפי שנדרש
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-@app.route('/find_order', methods=['GET', 'POST'])
-def find_order():
-    if request.method == 'GET':
-        return render_template('find_order.html')
-    
-    if request.method == 'POST':
-        order_code = request.form.get('order_code')
+# פונקציית עזר לבדיקת חיבור למסד הנתונים (דוגמה כללית)
+def get_db_connection():
+    return mysql.connector.connect(
+        host="localhost",
+        user="your_user",
+        password="your_password",
+        database="flytau_db"
+    )
+@app.route('/')
+def home():
+    return redirect(url_for('view_bookings')) # מונע שגיאת 404 בדף הבית
+
+@app.route('/my-bookings', methods=['GET', 'POST'])
+def view_bookings():
+    email = session.get('email') # מייל מהסשן אם מחובר
+    id_booking = None
+
+    if not email and request.method == 'POST':
         email = request.form.get('email')
-        order = get_order_from_db(order_code, email)
+        id_booking = request.form.get('id_booking') # קוד הזמנה לאורח
 
-        if not order:
-            return render_template('find_order.html', error="Order does not exist")
+    if email:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
 
-        flight_time = order['departure_time']
-        can_cancel = datetime.now() < (flight_time - timedelta(hours=36))
-        
-        total_price = order['total_price']
-        refund_amount = total_price * 0.95
-        
-        return render_template('order_details.html', 
-                               order=order, 
-                               can_cancel=can_cancel, 
-                               refund=refund_amount)
-
-def get_order_from_db(order_code, email):
-    try:
-        db = mysql.connector.connect(
-            host="localhost",
-            user="root",
-            password="root",
-            database="flytau_db"
-        )
-        cursor = db.cursor(dictionary=True)
-
+        # שאילתה המשלבת הזמנות, כרטיסים (לפרטי נוסעים) וטיסות [cite: 15, 33]
+        # הערה: הנחתי שקיימת טבלת routes עבור origin ו-destination לפי הקוד הקודם שלך
         query = """
-            SELECT 
-              o.order_id,
-              o.order_code, 
-              o.total_price, 
-              f.departure_time, 
-              f.origin_airport, 
-              f.destination_airport,
-              GROUP_CONCAT(s.seat_id) AS seats
-            FROM Orders o
-            JOIN Flights f ON o.flight_id = f.flight_id
-            JOIN Order_Seats os ON o.order_id = os.order_id
-            JOIN Seats s ON os.seat_id = s.seat_id
-            WHERE o.order_code = %s AND o.email = %s
-            GROUP BY o.order_id;
+            SELECT b.id_booking, b.booking_date, b.status AS booking_status, b.total_price,
+                   t.passenger_name, t.passenger_passport, t.row_number, t.seat_letter, t.class_type,
+                   f.departure_time, f.flight_status,
+                   r.origin, r.destination
+            FROM bookings b
+            JOIN tickets t ON b.id_booking = t.id_booking
+            JOIN flights f ON t.id_flight = f.id_flight
+            JOIN routes r ON f.id_route = r.id_route
+            WHERE (b.customers_email = %s OR b.registered_email = %s)
         """
-        
-        cursor.execute(query, (order_code, email))
-        order = cursor.fetchone()
-        db.close()
-        return order
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
+        params = [email, email]
+
+        if id_booking:
+            query += " AND b.id_booking = %s"
+            params.append(id_booking)
+
+        cursor.execute(query, tuple(params))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        # עיבוד הנתונים: קיבוץ כרטיסים תחת אותה הזמנה (כדי שלא יופיעו כשורות נפרדות)
+        bookings_dict = {}
+        for row in results:
+            bid = row['id_booking']
+            if bid not in bookings_dict:
+                bookings_dict[bid] = {
+                    'info': row,
+                    'tickets': []
+                }
+            bookings_dict[bid]['tickets'].append({
+                'name': row['passenger_name'],
+                'passport': row['passenger_passport'],
+                'seat': f"{row['row_number']}{row['seat_letter']}",
+                'class': row['class_type']
+            })
+
+        current_time = datetime.now()
+        future = [b for b in bookings_dict.values() if b['info']['departure_time'] >= now]
+        past = [b for b in bookings_dict.values() if b['info']['departure_time'] < now]
+
+        for b in bookings_dict.values():
+            # בדיקה אם הטיסה בעתיד לפי עמודת departure_time [cite: 15, 28]
+            if b['info']['departure_time'] >= current_time:
+                future.append(b)
+            else:
+                past.append(b)
+        return render_template('bookings_results.html', future=future, past=past, email=email)
+    return render_template('search_bookings.html')
+
+@app.route('/cancel-booking', methods=['POST'])
+def cancel_booking():
+
+    booking_id = request.form.get('booking_id')
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    # שליפת זמן המראה ומחיר מקורי לבדיקת חוק ה-36 שעות
+    cursor.execute("""
+            SELECT f.departure_time, b.total_price 
+            FROM bookings b 
+            JOIN tickets t ON b.id_booking = t.id_booking 
+            JOIN flights f ON t.id_flight = f.id_flight 
+            WHERE b.id_booking = %s LIMIT 1
+        """, (booking_id,))
+    flight = cursor.fetchone()
+
+    if flight:
+        time_diff = flight['departure_time'] - datetime.now()
+        if time_diff > timedelta(hours=36): # בדיקת התנאי מהפרויקט
+        # עדכון לסטטוס ביטול וגביית 5% דמי ביטול בלבד
+            new_price = float(flight['total_price']) * 0.05
+            cursor.execute("""
+                        UPDATE bookings 
+                        SET status = 'Cancelled_Client', total_price = %s 
+                        WHERE id_booking = %s
+                    """, (new_price, booking_id))
+            conn.commit()
+            flash(f"Order {booking_id} cancelled. 5% fee charged: {new_price} ILS.")
+        else:
+            flash("Cannot cancel: Flight is in less than 36 hours.")
+
+    cursor.close()
+    conn.close()
+    return redirect(url_for('view_bookings'))
+
+    if __name__ == '__main__':
+        app.run(debug=True, port=5001)  # מותאם ל-Mac שלך
