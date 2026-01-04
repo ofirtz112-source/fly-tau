@@ -1,0 +1,102 @@
+<!DOCTYPE html> #דף לחיפוש הטיסה אצל אורחים
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlyTAU - Find My Booking</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header style="text-align: center; margin-bottom: 30px;">
+            <img src="{{ url_for('static', filename='flytau_logo.png') }}" alt="FlyTAU Logo" width="150">
+            <h1>Find Your Booking</h1>
+        </header>
+
+        <div class="card" style="max-width: 400px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+            <form method="POST" action="/my-bookings">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="email"><strong>Email Address:</strong></label><br>
+                    <input type="email" id="email" name="email" required style="width: 100%; padding: 8px; margin-top: 5px;">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label for="booking_code"><strong>Booking ID:</strong></label><br>
+                    <input type="text" id="booking_code" name="booking_code" placeholder="Required for guests" style="width: 100%; padding: 8px; margin-top: 5px;">
+                    <small>Registered users can leave this empty if logged in.</small>
+                </div>
+
+                <button type="submit" style="width: 100%; background-color: #007bff; color: white; border: none; padding: 10px; cursor: pointer; border-radius: 4px;">Search Bookings</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>
+
+<!DOCTYPE html> # דף להצגת הטיסות הבאות לכולם + טיסות עבר לרשומים
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlyTAU - My Bookings</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header style="text-align: center; margin-bottom: 30px;">
+            <img src="{{ url_for('static', filename='flytau_logo.png') }}" alt="FlyTAU Logo" width="150">
+            <h2>Bookings for: {{ email }}</h2>
+        </header>
+
+        <h3>✈️ Upcoming Flights</h3>
+        {% if future %}
+            {% for b in future %}
+            <div class="booking-card" style="border: 1px solid #ddd; padding: 20px; margin-bottom: 20px; border-radius: 8px;">
+                <div class="booking-header">
+                    <p><strong>Booking ID:</strong> {{ b.info.id_booking }}</p>
+                    <p><strong>Trip:</strong> {{ b.info.origin }} ➡️ {{ b.info.destination }}</p>
+                    <p><strong>Departure:</strong> {{ b.info.departure_time.strftime('%Y-%m-%d %H:%M') }}</p>
+                    <p><strong>Flight Status:</strong> {{ b.info.flight_status }}</p>
+                    <p><strong>Total Paid:</strong> {{ b.info.total_price }} ILS</p>
+                </div>
+
+                <div class="tickets-info" style="background: #f4f7f6; padding: 10px; margin-top: 10px; border-radius: 5px;">
+                    <strong>Passengers & Seats:</strong>
+                    <ul style="list-style: none; padding: 0;">
+                        {% for ticket in b.tickets %}
+                        <li>👤 {{ ticket.name }} | 💺 Seat: {{ ticket.seat }} ({{ ticket.class }})</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+
+                <form action="/cancel-booking" method="POST" style="margin-top: 15px;">
+                    <input type="hidden" name="booking_id" value="{{ b.info.id_booking }}">
+                    <button type="submit" class="btn-cancel" style="background-color: #ff4d4d; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px;">Cancel Order</button>
+                </form>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p>You don't have any active orders.</p>
+        {% endif %}
+
+        <hr>
+
+        <h3>🕒 Order History</h3>
+        {% if past %}
+            {% for b in past %}
+            <div class="past-booking-card" style="opacity: 0.7; border-bottom: 1px solid #eee; padding: 10px 0;">
+                 <p>
+                    <strong>ID: {{ b.info.id_booking }}</strong> |
+                    {{ b.info.origin }} to {{ b.info.destination }} |
+                    Date: {{ b.info.departure_time.strftime('%Y-%m-%d') }} |
+                    Status: {{ b.info.booking_status }}
+                 </p>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p>No past bookings found.</p>
+        {% endif %}
+    </div>
+</body>
+</html>
