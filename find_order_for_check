@@ -1,0 +1,141 @@
+import sqlite3
+from flask import Flask, render_template_string, request, session, redirect, url_for
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+app.secret_key = 'flytau_secret'
+
+
+# --- 1. Database Setup (Matches your Screenshots Exactly) ---
+def init_db():
+    conn = sqlite3.connect('flytau_test.db')
+    cursor = conn.cursor()
+    # SQLite uses AUTOINCREMENT without underscore
+    cursor.executescript('''
+        CREATE TABLE IF NOT EXISTS routes (
+            id_route INTEGER PRIMARY KEY AUTOINCREMENT,
+            origin TEXT, destination TEXT
+        );
+        CREATE TABLE IF NOT EXISTS flights (
+            id_flight INTEGER PRIMARY KEY AUTOINCREMENT,
+            departure_time DATETIME NOT NULL,
+            flight_status TEXT, id_route INTEGER, id_plane TEXT, managers_id INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS bookings (
+            id_booking INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_date DATE NOT NULL,
+            status TEXT, customers_email TEXT, total_price DECIMAL(10,2), registered_email TEXT
+        );
+        CREATE TABLE IF NOT EXISTS tickets (
+            passenger_passport TEXT, passenger_name TEXT,
+            id_booking INTEGER, id_flight INTEGER, row_number INTEGER,
+            class_type TEXT, id_plane TEXT, seat_letter TEXT,
+            PRIMARY KEY (passenger_passport, id_booking)
+        );
+    ''')
+    # Mock Data
+    cursor.execute("SELECT count(*) FROM routes")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO routes (origin, destination) VALUES ('Tel Aviv', 'London')")
+        # Future flight for testing cancellation
+        future_time = (datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d %H:%M:%S')
+        cursor.execute("INSERT INTO flights (departure_time, flight_status, id_route) VALUES (?, 'Scheduled', 1)",
+                       (future_time,))
+        cursor.execute(
+            "INSERT INTO bookings (booking_date, status, customers_email, total_price) VALUES ('2026-01-01', 'Confirmed', 'guest@example.com', 1000.00)")
+        cursor.execute(
+            "INSERT INTO tickets (passenger_passport, passenger_name, id_booking, id_flight, row_number, seat_letter, class_type) VALUES ('P123', 'Ofir Tzur', 1, 1, 10, 'A', 'Economy')")
+        conn.commit()
+    conn.close()
+
+
+def get_db():
+    conn = sqlite3.connect('flytau_test.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+# --- 2. Routes ---
+
+@app.route('/')
+def home():
+    # This fixes the 404 error by redirecting to the bookings page
+    return redirect(url_for('view_bookings'))
+
+
+@app.route('/my-bookings', methods=['GET', 'POST'])
+def view_bookings():
+    email = session.get('email')
+    booking_code = request.form.get('booking_code') if request.method == 'POST' else None
+    if not email and request.method == 'POST':
+        email = request.form.get('email')
+
+    if email:
+        db = get_db()
+        # Query using your columns: id_booking, total_price, customers_email
+        query = """
+            SELECT b.id_booking, b.status AS booking_status, b.total_price,
+                   f.departure_time, r.origin, r.destination
+            FROM bookings b
+            JOIN tickets t ON b.id_booking = t.id_booking
+            JOIN flights f ON t.id_flight = f.id_flight
+            JOIN routes r ON f.id_route = r.id_route
+            WHERE (b.customers_email = ? OR b.registered_email = ?)
+        """
+        params = [email, email]
+        if booking_code:
+            query += " AND b.id_booking = ?"
+            params.append(booking_code)
+
+        results = db.execute(query, params).fetchall()
+        db.close()
+
+        # Simple list display
+        html = f"<h1>Bookings for {email}</h1>"
+        for b in results:
+            html += f"""
+            <div style="border:1px solid #ccc; padding:10px; margin-bottom:10px;">
+                <p>ID: {b['id_booking']} | {b['origin']} -> {b['destination']}</p>
+                <p>Departure: {b['departure_time']} | Total: {b['total_price']} ILS</p>
+                <form action="/cancel" method="POST">
+                    <input type="hidden" name="bid" value="{b['id_booking']}">
+                    <button type="submit">Cancel (36h Rule)</button>
+                </form>
+            </div>"""
+        return html + '<br><a href="/my-bookings">Back</a>'
+
+    return '''
+        <h1>Find My Booking</h1>
+        <form method="POST">
+            Email: <input type="email" name="email" value="guest@example.com"><br>
+            Booking ID: <input type="text" name="booking_code" value="1"><br>
+            <button type="submit">Search</button>
+        </form>
+    '''
+
+
+@app.route('/cancel', methods=['POST'])
+def cancel():
+    bid = request.form.get('bid')
+    db = get_db()
+    # Cancellation rule: up to 36 hours before, 5% fee [cite: 15, 47]
+    row = db.execute(
+        'SELECT f.departure_time, b.total_price FROM bookings b JOIN tickets t ON b.id_booking = t.id_booking JOIN flights f ON t.id_flight = f.id_flight WHERE b.id_booking = ?',
+        (bid,)).fetchone()
+
+    if row:
+        dep = datetime.strptime(row['departure_time'], '%Y-%m-%d %H:%M:%S')
+        if dep - datetime.now() > timedelta(hours=36):
+            fee = float(row['total_price']) * 0.05
+            db.execute('UPDATE bookings SET status="Cancelled_Client", total_price=? WHERE id_booking=?', (fee, bid))
+            db.commit()
+            db.close()
+            return f"Cancelled! Fee charged: {fee} ILS."
+    db.close()
+    return "Cancellation failed (less than 36h or not found)."
+
+
+if __name__ == '__main__':
+    init_db()
+    # Running on 5001 as requested
+    app.run(debug=True, port=5001)
