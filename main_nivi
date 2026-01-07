@@ -141,41 +141,6 @@ def manager_login_page():
 
     return redirect("/")  #כשיהיה צריך לשים פה את הmanager_portal
 
-#-----------------
-#select_seats
-#-----------------
-@app.route("/select-seats", methods=["GET", "POST"])
-def choose_seats_page():
-    if request.method == "GET":
-        flight_id = request.args.get("flight_id", type=int)
-        if not flight_id:
-            return redirect("/")
-
-        flight = chosen_flight_details(flight_id)
-        if not flight:
-            return redirect("/")
-        flight = prepare_flights_for_view([flight])[0]
-
-        dims = airplane_dimensions(flight_id)
-        layouts = []
-        # Business optional
-        if dims.get("business_rows") and dims.get("business_cols"):
-            layouts.append(build_seatmap_layout(
-                "Business",
-                dims["business_rows"],
-                dims["business_cols"],
-                aisle_px=64
-            ))
-
-        # Economy optional
-        if dims.get("economy_rows") and dims.get("economy_cols"):
-            layouts.append(build_seatmap_layout(
-                "Economy",
-                dims["economy_rows"],
-                dims["economy_cols"],
-                aisle_px=64
-            ))
-        return render_template("select_seats.html", flight=flight, layouts=layouts)
 
 
 if __name__ == "__main__":
