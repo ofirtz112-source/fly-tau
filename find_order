@@ -1,36 +1,33 @@
-from flask import Flask, render_template, request, session
-import mysql.connector  # לחיבור לבסיס הנתונים כפי שנדרש
+from flask import Flask, render_template, request, session, redirect, url_for, flash
+import mysql.connector
 from datetime import datetime, timedelta
 
-app = Flask(__name__)
+# --- ייבוא פונקציית החיבור מהקובץ החיצוני שלך ---
+from DB import get_connection
 
-# פונקציית עזר לבדיקת חיבור למסד הנתונים (דוגמה כללית)
-def get_db_connection():
-    return mysql.connector.connect(
-        host="localhost",
-        user="your_user",
-        password="your_password",
-        database="flytau_db"
-    )
+app = Flask(__name__)
+app.secret_key = 'your_secret_key'
+
 @app.route('/')
 def home():
-    return redirect(url_for('view_bookings')) # מונע שגיאת 404 בדף הבית
+    return redirect(url_for('view_bookings'))
+
 
 @app.route('/my-bookings', methods=['GET', 'POST'])
 def view_bookings():
-    email = session.get('email') # מייל מהסשן אם מחובר
+    email = session.get('email')
     id_booking = None
 
     if not email and request.method == 'POST':
         email = request.form.get('email')
-        id_booking = request.form.get('id_booking') # קוד הזמנה לאורח
+        id_booking = request.form.get('id_booking')
 
     if email:
-        conn = get_db_connection()
+        # --- כאן השינוי: שימוש בפונקציה מהקובץ החיצוני ---
+        conn = get_connection()
         cursor = conn.cursor(dictionary=True)
 
-        # שאילתה המשלבת הזמנות, כרטיסים (לפרטי נוסעים) וטיסות [cite: 15, 33]
-        # הערה: הנחתי שקיימת טבלת routes עבור origin ו-destination לפי הקוד הקודם שלך
+        # השאילתה שלך נשארה בדיוק אותו דבר
         query = """
             SELECT b.id_booking, b.booking_date, b.status AS booking_status, b.total_price,
                    t.passenger_name, t.passenger_passport, t.row_number, t.seat_letter, t.class_type,
@@ -53,7 +50,7 @@ def view_bookings():
         cursor.close()
         conn.close()
 
-        # עיבוד הנתונים: קיבוץ כרטיסים תחת אותה הזמנה (כדי שלא יופיעו כשורות נפרדות)
+        # עיבוד הנתונים
         bookings_dict = {}
         for row in results:
             bid = row['id_booking']
@@ -70,26 +67,36 @@ def view_bookings():
             })
 
         current_time = datetime.now()
-        future = [b for b in bookings_dict.values() if b['info']['departure_time'] >= now]
-        past = [b for b in bookings_dict.values() if b['info']['departure_time'] < now]
+
+        # השארתי רק לוגיקה אחת לסינון (בקוד שלך הייתה כפילות שיצרה באגים)
+        # תיקנתי את השימוש ב-now שהיה חסר ל-current_time
+        future = []
+        past = []
 
         for b in bookings_dict.values():
-            # בדיקה אם הטיסה בעתיד לפי עמודת departure_time [cite: 15, 28]
-            if b['info']['departure_time'] >= current_time:
+            # המרה לתאריך אם צריך
+            flight_time = b['info']['departure_time']
+            if isinstance(flight_time, str):
+                flight_time = datetime.strptime(flight_time, '%Y-%m-%d %H:%M:%S')
+
+            if flight_time >= current_time:
                 future.append(b)
             else:
                 past.append(b)
+
         return render_template('bookings_results.html', future=future, past=past, email=email)
+
     return render_template('search_bookings.html')
+
 
 @app.route('/cancel-booking', methods=['POST'])
 def cancel_booking():
-
     booking_id = request.form.get('booking_id')
-    conn = get_db_connection()
+
+    # --- כאן השינוי: שימוש בפונקציה מהקובץ החיצוני ---
+    conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # שליפת זמן המראה ומחיר מקורי לבדיקת חוק ה-36 שעות
     cursor.execute("""
             SELECT f.departure_time, b.total_price 
             FROM bookings b 
@@ -100,9 +107,14 @@ def cancel_booking():
     flight = cursor.fetchone()
 
     if flight:
-        time_diff = flight['departure_time'] - datetime.now()
-        if time_diff > timedelta(hours=36): # בדיקת התנאי מהפרויקט
-        # עדכון לסטטוס ביטול וגביית 5% דמי ביטול בלבד
+        flight_time = flight['departure_time']
+        # המרה בטיחותית לתאריך
+        if isinstance(flight_time, str):
+            flight_time = datetime.strptime(flight_time, '%Y-%m-%d %H:%M:%S')
+
+        time_diff = flight_time - datetime.now()
+
+        if time_diff > timedelta(hours=36):
             new_price = float(flight['total_price']) * 0.05
             cursor.execute("""
                         UPDATE bookings 
@@ -118,5 +130,6 @@ def cancel_booking():
     conn.close()
     return redirect(url_for('view_bookings'))
 
-    if __name__ == '__main__':
-        app.run(debug=True, port=5001)  # מותאם ל-Mac שלך
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5001)
