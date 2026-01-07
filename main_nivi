@@ -1,0 +1,182 @@
+from flask import Flask, render_template,request, session, redirect
+from DB import (search_flights, user_login, email_exists, passport_exists, create_account, manager_login,
+                chosen_flight_details, airplane_dimensions)
+from utils import prepare_flights_for_view, build_seatmap_layout
+
+app = Flask(__name__)
+app.secret_key="LironOfirNivi"
+
+
+#----------------
+#home_page_screen
+#----------------
+
+@app.route("/", methods=["GET"])
+def home_page():
+    date= (request.args.get("date") or "").strip()
+    origin = (request.args.get("origin") or "").strip()
+    destination = (request.args.get("destination") or "").strip()
+
+    searched = bool(date or origin or destination)
+
+    if not searched:
+        return render_template("home_page.html", date="", origin="", destination="",
+                               flights=None, error = None)
+    if not (date and origin and destination):
+        return render_template("home_page.html", date = date, origin=origin,
+                               destination=destination, flights=None, error = 'Please fill all the fields.')
+    flights = search_flights(date, origin, destination)
+    flights = prepare_flights_for_view(flights)
+
+    return render_template("home_page.html",date=date, origin=origin, destination=destination, flights=flights, error=None)
+
+
+
+#-----------------
+#register_login
+#-----------------
+
+@app.route("/register-login", methods=["GET", "POST"])
+def register_login_page():
+    if request.method == "GET":
+        return render_template("register_login.html", error=None)
+
+    email = (request.form.get("email") or "").strip()
+    password = (request.form.get("password") or "").strip()
+
+    if not email or not password:
+        return render_template("register_login.html", error="Please enter email and password.")
+
+    user = user_login(email, password)
+
+    if user is None:
+        return render_template("register_login.html", error= "User not found. Please try again or continue as a guest",
+                               email=email)
+
+    session["email"] = user["email"]
+    session["user_type"] = "registered"
+    session["first_name"] = user["first_name_eng"]
+
+    return redirect("/")
+
+#-----------------
+#register_logout
+#-----------------
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
+
+#-----------
+#create_account
+#-----------
+
+@app.route("/create-account", methods=["GET", "POST"])
+def create_account_page():
+    if request.method == "GET":
+        return render_template("create_account.html", error=None)
+
+    first_name_eng = (request.form.get("first_name") or "").strip()
+    last_name_eng = (request.form.get("last_name") or "").strip()
+    email = (request.form.get("email") or "").strip()
+    birth_date = (request.form.get("date_of_birth") or "").strip()
+    passport = (request.form.get("passport_number") or "").strip()
+    password = (request.form.get("password") or "").strip()
+
+    phone_numbers = request.form.getlist("phone_numbers")
+    phone_numbers = [phone.strip() for phone in phone_numbers if phone and phone.strip()]
+
+
+    if not all ([first_name_eng, last_name_eng, email, birth_date, passport, password]) or not phone_numbers:
+        return render_template(
+            "create_account.html",
+            error="Please fill all the fields.",
+            first_name=first_name_eng, last_name=last_name_eng, email=email,
+            date_of_birth=birth_date, passport_number=passport,)
+
+    if email_exists(email):
+        return render_template("create_account.html",error="This email is already registered.",
+            first_name=first_name_eng, last_name=last_name_eng, email=email, date_of_birth=birth_date,
+            passport_number=passport)
+
+    if passport_exists(passport):
+        return render_template("create_account.html",error="This passport number is already registered.",
+            first_name=first_name_eng, last_name=last_name_eng, email=email,
+            date_of_birth=birth_date, passport_number=passport)
+
+    create_account(email, first_name_eng, last_name_eng, birth_date, passport, password, phone_numbers)
+
+    session["user_type"]= "registered"
+    session["email"] = email
+    session["first_name"] = first_name_eng
+
+    return redirect("/")
+
+
+#-----------------
+#manager_login
+#-----------------
+
+@app.route("/manager-login", methods=["GET", "POST"])
+def manager_login_page():
+    if request.method == "GET":
+        return render_template("manager_login.html", error=None, id_worker="")
+
+    id_worker = (request.form.get("id_worker") or "").strip()
+    password = (request.form.get("password") or "").strip()
+
+    if not id_worker or not password:
+        return render_template("manager_login.html", error="Please enter ID and password.", id_worker=id_worker)
+
+    manager = manager_login(id_worker, password)
+
+    if manager is None:
+        return render_template("manager_login.html", error= "Manager not found. Please try again",
+                                id_worker=id_worker)
+
+    session["id_worker"] = manager["id_worker"]
+    session["user_type"] = "manager"
+    session["first_name"] = manager["first_name"]
+
+    return redirect("/")  #כשיהיה צריך לשים פה את הmanager_portal
+
+#-----------------
+#select_seats
+#-----------------
+@app.route("/select-seats", methods=["GET", "POST"])
+def choose_seats_page():
+    if request.method == "GET":
+        flight_id = request.args.get("flight_id", type=int)
+        if not flight_id:
+            return redirect("/")
+
+        flight = chosen_flight_details(flight_id)
+        if not flight:
+            return redirect("/")
+        flight = prepare_flights_for_view([flight])[0]
+
+        dims = airplane_dimensions(flight_id)
+        layouts = []
+        # Business optional
+        if dims.get("business_rows") and dims.get("business_cols"):
+            layouts.append(build_seatmap_layout(
+                "Business",
+                dims["business_rows"],
+                dims["business_cols"],
+                aisle_px=64
+            ))
+
+        # Economy optional
+        if dims.get("economy_rows") and dims.get("economy_cols"):
+            layouts.append(build_seatmap_layout(
+                "Economy",
+                dims["economy_rows"],
+                dims["economy_cols"],
+                aisle_px=64
+            ))
+        return render_template("select_seats.html", flight=flight, layouts=layouts)
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
