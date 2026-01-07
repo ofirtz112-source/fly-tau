@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+
+<head>
+
+    <meta charset="UTF-8">
+    <title>FlyTAU</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600&display=swap" rel="stylesheet">
+
+</head>
+
+
+<body>
+
+  <div class="container">
+   <div class="card">
+    <h2> Create Account</h2>
+
+    <form method="post" action="{{ url_for('create_account_page') }}">
+
+        <label>First Name</label>
+        <input type="text" name = "first_name" required value="{{ first_name or '' }}">
+
+        <label>Last Name</label>
+        <input type="text" name = "last_name" required value="{{ last_name or '' }}">
+
+        <label>Email Address</label>
+        <input type="email" name = "email" required value="{{ email or '' }}">
+
+        <label>Date of Birth</label>
+        <input type="date" name = "date_of_birth" required value="{{ date_of_birth or '' }}">
+
+        <label>Passport Number</label>
+        <input type="text" name = "passport_number" required value="{{ passport_number or '' }}">
+
+        <label>Password</label>
+        <input type="password" name = "password" required>
+
+        <label>Phone Numbers</label>
+        <div id="phones">
+          <input type="text" name="phone_numbers" required placeholder="Phone number">
+        </div>
+
+        <button type="button" class="small-btn" onclick="addPhone()">+ Add another phone</button>
+
+        <script>
+          function addPhone() {
+            const container = document.getElementById("phones");
+            const input = document.createElement("input");
+            input.type = "text";
+            input.name = "phone_numbers";
+            input.placeholder = "Phone number";
+            container.appendChild(input);
+          }
+        </script>
+
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <button type = "submit" class="btn">Create Account</button>
+
+      </form>
+   </div>
+  </div>
+</body>
+
+</html>
