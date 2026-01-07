@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FlyTAU</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+
+  <div class="container">
+
+    <div class="top-bar">
+
+      <div class="welcome">
+        {% if session.get('first_name') %}
+          <span class="welcome"> Hi {{ session.get('first_name') }}</span>
+        {% endif %}
+      </div>
+
+      <div class="nav-area">
+        {% if 'email' not in session %}
+          <a class = "nav-btn" href="{{ url_for ('register_login_page') }}" >My Account</a>
+          <a class = "nav-btn" href="{{ url_for ('create_account_page') }}" >Join FlyTAU</a>
+          <a class = "nav-btn" href="{{ url_for ('manager_login_page') }}" >Management Portal</a>
+        {% else %}
+          <a class="nav-btn logout-btn" href="/logout"> Logout</a>
+        {% endif %}
+      </div>
+
+    </div>
+
+    <div class="hero">
+      <h1 class="hero-title">FlyTAU</h1>
+      <p class="hero-subtitle">Your Journey Starts Here.</p>
+    </div>
+
+    <form method="GET" action="/" class="search-form">
+
+      <div class="search-field">
+        <label for="date"> Date</label>
+        <input type="date"
+               id="date"
+               name="date"
+               value="{{ date }}" required >
+      </div>
+
+      <div class="search-field">
+        <label for="origin">Origin</label>
+        <input type="text"
+               id="origin"
+               name="origin"
+               placeholder="Where are you leaving from?"
+               list = "places"
+               value="{{ origin }}" required>
+      </div>
+
+      <div class="search-field">
+        <label for="destination">Destination</label>
+        <input type="text"
+               id="destination"
+               name="destination"
+               placeholder="Where would you like to go?"
+               list = "places"
+               value="{{ destination }}" required>
+      </div>
+
+
+      <datalist id="places">
+        <option value="Jerusalem"></option>
+        <option value="Haifa"></option>
+        <option value="Eilat"></option>
+        <option value="Rome"></option>
+        <option value="Paris"></option>
+        <option value="London"></option>
+        <option value="Berlin"></option>
+        <option value="Athens"></option>
+      </datalist>
+<!--        #כשיהיה דאטאבייס החלק הזה יוחלף ב (קומנד/):-->
+<!--        <datalist id="places">-->
+<!-- {% for p in places %}-->
+<!--   <option value="{{ p }}"></option>-->
+<!--  {% endfor %}-->
+<!--</datalist>-->
+
+
+      <button type = "submit" class="btn"> Search</button>
+
+    </form>
+<!--</הצגת הטיסות הרלוונטיות>-->
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+
+    {% if flights is not none %}
+      {% if flights|length == 0 %}
+    <p class="error">Sorry, we couldn’t find any flights that match your search </p>
+    {% else %}
+      <table class="flights-table">
+        <tbody>
+
+        {% for flight in flights %}
+
+          <tr class="flight-row">
+
+            <td class="col-flight_id">
+              <div class="sub"> Flight No. {{ flight["flight_id"] }}</div>
+            </td>
+
+            <td class="col-time">
+              <div class="dt">{{ flight["departure_display"] }}</div>
+            </td>
+
+             <td class="col-place">
+              <div class="sub">{{ flight["origin"] }}</div>
+            </td>
+
+            <td class="arrow">✈︎</td>
+
+            <td class="col-time">
+              <div class="dt">{{ flight["arrival_display"] }}</div>
+            </td>
+
+            <td class="col-place">
+              <div class="sub">{{ flight["destination"] }}</div>
+            </td>
+
+            <td class="col-price">
+              Starting from {{ flight["price_display"] }} <!-- min price -->
+
+            </td>
+
+            <td class="col-choose">
+              <a class="btn choose-btn"
+                 href="{{ url_for('choose_seats_page') }}?flight_id={{ flight['flight_id'] }}"> Choose flight
+              </a>
+            </td>
+
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    {% endif %}
+
+
+  </div>
+</body>
+</html>
