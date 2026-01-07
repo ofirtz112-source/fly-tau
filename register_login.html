@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>FlyTAU</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+</head>
+<body>
+
+  <div class="container">
+   <div class="card">
+    <h1> Welcome to FlyTAU!</h1>
+    <h3> Already Registered? Please Sign In:</h3>
+
+    <form method="post" action="{{ url_for('register_login_page') }}">
+        <label> Email Address</label>
+        <input type="email" name="email" required value="{{ email or '' }}">
+        <label> Password</label>
+        <input type="password" name="password" required>
+
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+
+       <button type="submit" class="btn">Sign In</button>
+
+    </form>
+
+    <p>Not registered yet?
+        <a href="{{ url_for('create_account_page') }}"> Please press here</a>
+    </p>
+
+   </div>
+  </div>
+</body>
+
+</html>
