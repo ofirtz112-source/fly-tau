@@ -1,0 +1,227 @@
+import mysql.connector
+from mysql.connector import Error
+
+
+DB_CONFIG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "YOUR_PASSWORD",
+    "database": "YOUR_DB_NAME",
+    "port": 3306
+}
+
+def get_connection():
+    return mysql.connector.connect(**DB_CONFIG)
+
+
+def search_flights(date_str, origin_city, destination_city):
+    query = """
+        SELECT
+          f.id_flight AS flight_id,
+          f.departure_time,
+          ADDTIME(f.departure_time, r.duration) AS arrival_time,
+          a_from.city AS origin,
+          a_to.city AS destination,
+          MIN(fp.price) AS min_price
+        FROM flights f
+        JOIN routes r
+          ON r.id_route = f.id_route
+        JOIN airports a_from
+          ON a_from.airport_code = r.origin_code
+        JOIN airports a_to
+          ON a_to.airport_code = r.destination_code
+        JOIN flight_pricing fp
+          ON fp.id_flight = f.id_flight
+        WHERE f.flight_status = 'active'
+          AND DATE(f.departure_time) = %s
+          AND a_from.city = %s
+          AND a_to.city = %s
+        GROUP BY
+          f.id_flight, f.departure_time, r.duration, a_from.city, a_to.city
+        ORDER BY f.departure_time
+    """
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query, (date_str, origin_city, destination_city))
+        return cur.fetchall()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
+
+
+def user_login(email, password):
+    query = """
+        SELECT c.email, c.first_name_eng
+        FROM customers c
+        JOIN registered_customers r
+          ON r.customers_email = c.email
+        WHERE c.email = %s
+          AND r.password = %s
+        LIMIT 1
+    """
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query, (email, password))
+        return cur.fetchone()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
+
+
+def email_exists(email):
+    query = "SELECT 1 FROM customers WHERE email = %s LIMIT 1"
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(query, (email,))
+        return cur.fetchone() is not None
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
+
+
+def passport_exists(passport):
+    query = "SELECT 1 FROM registered_customers WHERE passport = %s LIMIT 1"
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(query, (passport,))
+        return cur.fetchone() is not None
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
+
+
+def create_account(email, first_name_eng, last_name_eng, birth_date, passport, password, phone_numbers):
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+
+        # customers
+        cur.execute(
+            "INSERT INTO customers (email, first_name_eng, last_name_eng) VALUES (%s, %s, %s)",
+            (email, first_name_eng, last_name_eng)
+        )
+
+        # registered_customers
+        cur.execute(
+            """
+            INSERT INTO registered_customers
+              (customers_email, password, birth_date, passport, registration_date)
+            VALUES (%s, %s, %s, %s, CURDATE())
+            """,
+            (email, password, birth_date, passport)
+        )
+
+        # phone_numbers (many)
+        cur.executemany(
+            "INSERT INTO phone_numbers (customers_email, phone_number) VALUES (%s, %s)",
+            [(email, phone) for phone in phone_numbers]
+        )
+
+        conn.commit()
+
+    except Error:
+        conn.rollback()
+        raise
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
+
+
+def manager_login(id_worker, password):
+    query = """
+        SELECT m.id_worker, m.first_name
+        FROM managers m
+        WHERE m.id_worker = %s
+            AND m.password = %s
+        LIMIT 1
+    """
+
+    conn = get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query, (id_worker, password))
+        return cur.fetchone()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
+
+
+def airplane_dimensions(id_flight):
+    query = """ 
+            SELECT c_eco.num_rows AS economy_rows,
+                   c_eco.num_cols AS economy_cols,
+                   c_bus.num_rows AS business_rows, 
+                   c_bus.num_cols AS business_cols
+        
+            FROM flights f  
+            LEFT JOIN classes c_eco
+                ON f.id_plane = c_eco.id_plane AND c_eco.class_type = 'Economy'
+            LEFT JOIN classes c_bus
+                ON f.id_plane = c_bus.id_plane AND c_bus.class_type = 'Business'
+            WHERE f.id_flight = %s
+            """
+    conn = get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query, (id_flight,))
+        return cur.fetchone()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
+
+def chosen_flight_details(id_flight):
+    query=""" SELECT 
+    f.id_flight AS flight_id,
+    f.departure_time,
+    ADDTIME(f.departure_time, r.duration) as arrival_time,
+    airport_from.city AS origin,
+    airport_to.city AS destination
+    FROM flights f
+    JOIN routes r 
+        ON r.id_route = f.id_route
+    JOIN airports airport_from
+        ON airport_from.airport_code = r.origin_code
+    JOIN airports airport_to
+        ON airport_to.airport_code = r.destination_code
+    WHERE f.id_flight = %s
+    """
+    conn = get_connection()
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query, (id_flight,))
+        return cur.fetchone()
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
