@@ -1,0 +1,284 @@
+body{
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+  background: linear-gradient(135deg, #eef2f7, #dbe7f3);
+}
+
+.container{
+    max-width: 80%;
+    margin: 40px auto;
+    padding: 0 40px;
+}
+
+.card{
+    background: white;
+    padding: 24px;
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+}
+
+h1{
+    margin: 0 0 14px 0;
+    text-align: center;
+    font-family: 'Oswald', sans-serif;
+    letter-spacing: 0.5px
+}
+
+h2{
+    margin-bottom: 24px;
+    font-size: 24px;
+    letter-spacing: 0.5px;
+    text-align: center;
+    font-family: 'Oswald', sans-serif;
+    letter-spacing: 0.5px
+}
+
+h3{
+    text-align: center;
+}
+
+label{
+    display: block;
+    margin-top: 8px;
+    margin-bottom: 4px;
+    font-weight: 600;
+}
+
+input{
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #cfd3da;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 8px
+}
+
+.btn{
+    margin-top: 16px;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 8px;
+    background: #1f6feb;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    display: block;
+    width: fit-content;
+    margin: 20px auto;
+}
+
+.btn:hover{
+    opacity: 0.9;
+}
+
+a{
+    color: #1f6feb;
+    text-decoration: none;
+}
+a:hover{
+    text-decoration: underline;
+}
+
+.error{color: #c1121f;
+  font-weight: 600;
+  margin-top: 10px;
+  text-align: center;
+}
+
+.search-field{
+  display: flex;
+  flex-direction: column;
+}
+
+.search-form{
+  align-items: end;
+}
+
+.search-field input{
+  height: 38px;
+  padding: 6px 12px;
+  box-sizing: border-box;
+  font-size: 16px
+}
+
+.search-form .btn{
+  height: 36px;
+  padding: 0 28px;
+  line-height: 38px;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+
+.search-form .btn:hover{
+    opacity: 0.9;
+    text-decoration: underline;
+}
+
+
+input[type="date"]::-webkit-calendar-picker-indicator{
+  transform: scale(1.4);
+}
+
+.flights-table{
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 18px;
+}
+
+.flights-table td{
+  border-left: none;
+  border-right: none;              /* קווי אורך לא נראים */
+  border-bottom: 1px solid #A9A9A9;/* קווי רוחב אפור בהיר */
+  padding: 14px 10px;
+  vertical-align: middle;
+}
+
+.flight-row:first-line td{
+  border-top: 1px solid #e6e6e6;   /* קו עליון לשורה הראשונה */
+}
+
+.col-flight_id{
+  width: 7%;
+  text-align: right;
+}
+
+.col-place{ width: 10%; }
+
+.col-time{ width: 28%; }
+
+.arrow{
+  width: 4%;
+  text-align: center;
+  font-size: 34px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+.col-price{
+  width: 7%;
+  text-align: center;
+  font-weight: 700;
+}
+.col-choose{
+  width: 7%;
+  text-align: right;
+}
+
+.dt{
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.underline{
+  margin: 6px 0 6px;
+  height: 1px;
+  background: #e6e6e6;
+  width: 100%;
+}
+
+.sub{
+  font-size: 18px;
+  opacity: 0.85;
+}
+
+.choose-btn{
+  height: 40px;                 /* קצת יותר גבוה לשתי שורות */
+  padding: 6px 22px;
+  display: flex;
+  flex-direction: column;       /* 👈 טקסט בשתי שורות */
+  align-items: center;          /* מרכז אופקית */
+  justify-content: center;      /* מרכז אנכית */
+  background: #1f6feb;
+  color: white;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;           /* חשוב לשתי שורות */
+  cursor: pointer;
+}
+
+
+.choose-btn:hover{
+    opacity: 0.9;
+    text-decoration: underline;
+}
+
+---------------
+.top-nav{
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 18px;
+}
+
+.nav-btn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 18px;
+
+  background: white;
+  border: 1px solid #cfd3da;
+  border-radius: 10px;
+
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.nav-btn:hover{
+  background: #f6f8fa;
+}
+
+.logout-btn{
+  border-color: #ffb26b;
+}
+
+.top-bar{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.welcome-area{
+  min-width: 160px;
+}
+
+.welcome{
+  color: #ff7a00;
+  font-weight: 700;
+}
+
+.nav-area{
+  display: flex;
+  gap: 10px;
+}
+
+
+.hero {
+  text-align: center;
+  margin: 30px 0 40px 0;
+}
+
+.hero-title {
+  font-family: 'Oswald', sans-serif;
+  font-size: 54px;
+  letter-spacing: 2px;
+  margin: 0;
+  color: #1e3a8a; /* כחול עמוק */
+}
+
+
+.hero-subtitle {
+  margin-top: 8px;
+  font-size: 16px;
+  color: #666;
+}
+
