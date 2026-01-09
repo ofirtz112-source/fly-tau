@@ -1,284 +1,168 @@
-body{
-    font-family: 'Inter', sans-serif;
-    margin: 0;
-  background: linear-gradient(135deg, #eef2f7, #dbe7f3);
-}
+from flask import Flask, render_template, request, session, redirect
+# ייבוא הפונקציות מה-DB (כולל החדשה get_all_destinations)
+from DB import (search_flights, user_login, email_exists, passport_exists, create_account, manager_login,
+                chosen_flight_details, airplane_dimensions, get_all_destinations)
+from utils import prepare_flights_for_view, build_seatmap_layout
 
-.container{
-    max-width: 80%;
-    margin: 40px auto;
-    padding: 0 40px;
-}
-
-.card{
-    background: white;
-    padding: 24px;
-    border-radius: 12px;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.08);
-    margin-bottom: 20px;
-}
-
-h1{
-    margin: 0 0 14px 0;
-    text-align: center;
-    font-family: 'Oswald', sans-serif;
-    letter-spacing: 0.5px
-}
-
-h2{
-    margin-bottom: 24px;
-    font-size: 24px;
-    letter-spacing: 0.5px;
-    text-align: center;
-    font-family: 'Oswald', sans-serif;
-    letter-spacing: 0.5px
-}
-
-h3{
-    text-align: center;
-}
-
-label{
-    display: block;
-    margin-top: 8px;
-    margin-bottom: 4px;
-    font-weight: 600;
-}
-
-input{
-    width: 100%;
-    padding: 10px;
-    border: 1px solid #cfd3da;
-    border-radius: 8px;
-    font-size: 14px;
-    margin-bottom: 8px
-}
-
-.btn{
-    margin-top: 16px;
-    padding: 10px 14px;
-    border: none;
-    border-radius: 8px;
-    background: #1f6feb;
-    color: white;
-    font-weight: 600;
-    cursor: pointer;
-    display: block;
-    width: fit-content;
-    margin: 20px auto;
-}
-
-.btn:hover{
-    opacity: 0.9;
-}
-
-a{
-    color: #1f6feb;
-    text-decoration: none;
-}
-a:hover{
-    text-decoration: underline;
-}
-
-.error{color: #c1121f;
-  font-weight: 600;
-  margin-top: 10px;
-  text-align: center;
-}
-
-.search-field{
-  display: flex;
-  flex-direction: column;
-}
-
-.search-form{
-  align-items: end;
-}
-
-.search-field input{
-  height: 38px;
-  padding: 6px 12px;
-  box-sizing: border-box;
-  font-size: 16px
-}
-
-.search-form .btn{
-  height: 36px;
-  padding: 0 28px;
-  line-height: 38px;
-  margin: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: 700;
-  box-sizing: border-box;
-}
-
-.search-form .btn:hover{
-    opacity: 0.9;
-    text-decoration: underline;
-}
+app = Flask(__name__)
+app.secret_key = "LironOfirNivi"
 
 
-input[type="date"]::-webkit-calendar-picker-indicator{
-  transform: scale(1.4);
-}
+# ----------------
+# home_page_screen
+# ----------------
+@app.route("/", methods=["GET"])
+def home_page():
+    # קבלת הנתונים מהטופס
+    trip_type = (request.args.get("trip_type") or "oneway").strip()
+    date = (request.args.get("date") or "").strip()
+    return_date = (request.args.get("return_date") or "").strip()
+    origin = (request.args.get("origin") or "").strip()
+    destination = (request.args.get("destination") or "").strip()
 
-.flights-table{
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 18px;
-}
+    searched = bool(date or origin or destination)
+    destinations = get_all_destinations()
 
-.flights-table td{
-  border-left: none;
-  border-right: none;              /* קווי אורך לא נראים */
-  border-bottom: 1px solid #A9A9A9;/* קווי רוחב אפור בהיר */
-  padding: 14px 10px;
-  vertical-align: middle;
-}
+    # מקרה 1: כניסה ראשונית
+    if not searched:
+        return render_template("home_page.html", date="", return_date="", origin="", destination="",
+                               flights=None, error=None, destinations=destinations, trip_type=trip_type)
 
-.flight-row:first-line td{
-  border-top: 1px solid #e6e6e6;   /* קו עליון לשורה הראשונה */
-}
+    # מקרה 2: חסרים פרטים
+    if not (date and origin and destination):
+        return render_template("home_page.html", date=date, return_date=return_date, origin=origin,
+                               destination=destination, flights=None, error='Please fill all the fields.',
+                               destinations=destinations, trip_type=trip_type)
 
-.col-flight_id{
-  width: 7%;
-  text-align: right;
-}
+    # מקרה 3: חיפוש
+    flights = search_flights(date, origin, destination)
 
-.col-place{ width: 10%; }
+    if trip_type == "round" and return_date:
+        return_flights = search_flights(return_date, destination, origin)
+        flights.extend(return_flights)
 
-.col-time{ width: 28%; }
+    flights = prepare_flights_for_view(flights)
 
-.arrow{
-  width: 4%;
-  text-align: center;
-  font-size: 34px;
-  font-weight: 700;
-  opacity: 0.7;
-}
-.col-price{
-  width: 7%;
-  text-align: center;
-  font-weight: 700;
-}
-.col-choose{
-  width: 7%;
-  text-align: right;
-}
+    return render_template("home_page.html",
+                           date=date,
+                           return_date=return_date,
+                           origin=origin,
+                           destination=destination,
+                           flights=flights,
+                           error=None,
+                           destinations=destinations,
+                           trip_type=trip_type)
+# -----------------
+# register_login
+# -----------------
 
-.dt{
-  font-size: 14px;
-  font-weight: 400;
-}
+@app.route("/register-login", methods=["GET", "POST"])
+def register_login_page():
+    if request.method == "GET":
+        return render_template("register_login.html", error=None)
 
-.underline{
-  margin: 6px 0 6px;
-  height: 1px;
-  background: #e6e6e6;
-  width: 100%;
-}
+    email = (request.form.get("email") or "").strip()
+    password = (request.form.get("password") or "").strip()
 
-.sub{
-  font-size: 18px;
-  opacity: 0.85;
-}
+    if not email or not password:
+        return render_template("register_login.html", error="Please enter email and password.")
 
-.choose-btn{
-  height: 40px;                 /* קצת יותר גבוה לשתי שורות */
-  padding: 6px 22px;
-  display: flex;
-  flex-direction: column;       /* 👈 טקסט בשתי שורות */
-  align-items: center;          /* מרכז אופקית */
-  justify-content: center;      /* מרכז אנכית */
-  background: #1f6feb;
-  color: white;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-  text-align: center;           /* חשוב לשתי שורות */
-  cursor: pointer;
-}
+    user = user_login(email, password)
+
+    if user is None:
+        return render_template("register_login.html", error="User not found. Please try again or continue as a guest",
+                               email=email)
+
+    session["email"] = user["email"]
+    session["user_type"] = "registered"
+    session["first_name"] = user["first_name_eng"]
+
+    return redirect("/")
 
 
-.choose-btn:hover{
-    opacity: 0.9;
-    text-decoration: underline;
-}
+# -----------------
+# register_logout
+# -----------------
 
----------------
-.top-nav{
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  margin-bottom: 18px;
-}
-
-.nav-btn{
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 40px;
-  padding: 0 18px;
-
-  background: white;
-  border: 1px solid #cfd3da;
-  border-radius: 10px;
-
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.nav-btn:hover{
-  background: #f6f8fa;
-}
-
-.logout-btn{
-  border-color: #ffb26b;
-}
-
-.top-bar{
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-
-.welcome-area{
-  min-width: 160px;
-}
-
-.welcome{
-  color: #ff7a00;
-  font-weight: 700;
-}
-
-.nav-area{
-  display: flex;
-  gap: 10px;
-}
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
 
 
-.hero {
-  text-align: center;
-  margin: 30px 0 40px 0;
-}
+# -----------
+# create_account
+# -----------
 
-.hero-title {
-  font-family: 'Oswald', sans-serif;
-  font-size: 54px;
-  letter-spacing: 2px;
-  margin: 0;
-  color: #1e3a8a; /* כחול עמוק */
-}
+@app.route("/create-account", methods=["GET", "POST"])
+def create_account_page():
+    if request.method == "GET":
+        return render_template("create_account.html", error=None)
+
+    first_name_eng = (request.form.get("first_name") or "").strip()
+    last_name_eng = (request.form.get("last_name") or "").strip()
+    email = (request.form.get("email") or "").strip()
+    birth_date = (request.form.get("date_of_birth") or "").strip()
+    passport = (request.form.get("passport_number") or "").strip()
+    password = (request.form.get("password") or "").strip()
+
+    phone_numbers = request.form.getlist("phone_numbers")
+    phone_numbers = [phone.strip() for phone in phone_numbers if phone and phone.strip()]
+
+    if not all([first_name_eng, last_name_eng, email, birth_date, passport, password]) or not phone_numbers:
+        return render_template(
+            "create_account.html",
+            error="Please fill all the fields.",
+            first_name=first_name_eng, last_name=last_name_eng, email=email,
+            date_of_birth=birth_date, passport_number=passport, )
+
+    if email_exists(email):
+        return render_template("create_account.html", error="This email is already registered.",
+                               first_name=first_name_eng, last_name=last_name_eng, email=email,
+                               date_of_birth=birth_date,
+                               passport_number=passport)
+
+    if passport_exists(passport):
+        return render_template("create_account.html", error="This passport number is already registered.",
+                               first_name=first_name_eng, last_name=last_name_eng, email=email,
+                               date_of_birth=birth_date, passport_number=passport)
+
+    create_account(email, first_name_eng, last_name_eng, birth_date, passport, password, phone_numbers)
+
+    session["user_type"] = "registered"
+    session["email"] = email
+    session["first_name"] = first_name_eng
+
+    return redirect("/")
 
 
-.hero-subtitle {
-  margin-top: 8px;
-  font-size: 16px;
-  color: #666;
-}
+# -----------------
+# manager_login
+# -----------------
 
+@app.route("/manager-login", methods=["GET", "POST"])
+def manager_login_page():
+    if request.method == "GET":
+        return render_template("manager_login.html", error=None, id_worker="")
+
+    id_worker = (request.form.get("id_worker") or "").strip()
+    password = (request.form.get("password") or "").strip()
+
+    if not id_worker or not password:
+        return render_template("manager_login.html", error="Please enter ID and password.", id_worker=id_worker)
+
+    manager = manager_login(id_worker, password)
+
+    if manager is None:
+        return render_template("manager_login.html", error="Manager not found. Please try again",
+                               id_worker=id_worker)
+
+    session["id_worker"] = manager["id_worker"]
+    session["user_type"] = "manager"
+    session["first_name"] = manager["first_name"]
+
+    return redirect("/")
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
