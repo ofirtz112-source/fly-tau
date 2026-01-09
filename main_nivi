@@ -1,40 +1,60 @@
-from flask import Flask, render_template,request, session, redirect
+from flask import Flask, render_template, request, session, redirect
+# ייבוא הפונקציות מה-DB (כולל החדשה get_all_destinations)
 from DB import (search_flights, user_login, email_exists, passport_exists, create_account, manager_login,
-                chosen_flight_details, airplane_dimensions)
+                chosen_flight_details, airplane_dimensions, get_all_destinations)
 from utils import prepare_flights_for_view, build_seatmap_layout
 
 app = Flask(__name__)
-app.secret_key="LironOfirNivi"
+app.secret_key = "LironOfirNivi"
 
 
-#----------------
-#home_page_screen
-#----------------
-
+# ----------------
+# home_page_screen
+# ----------------
 @app.route("/", methods=["GET"])
 def home_page():
-    date= (request.args.get("date") or "").strip()
+    # קבלת הנתונים מהטופס
+    trip_type = (request.args.get("trip_type") or "oneway").strip()
+    date = (request.args.get("date") or "").strip()
+    return_date = (request.args.get("return_date") or "").strip()
     origin = (request.args.get("origin") or "").strip()
     destination = (request.args.get("destination") or "").strip()
 
     searched = bool(date or origin or destination)
+    destinations = get_all_destinations()
 
+    # מקרה 1: כניסה ראשונית
     if not searched:
-        return render_template("home_page.html", date="", origin="", destination="",
-                               flights=None, error = None)
+        return render_template("home_page.html", date="", return_date="", origin="", destination="",
+                               flights=None, error=None, destinations=destinations, trip_type=trip_type)
+
+    # מקרה 2: חסרים פרטים
     if not (date and origin and destination):
-        return render_template("home_page.html", date = date, origin=origin,
-                               destination=destination, flights=None, error = 'Please fill all the fields.')
+        return render_template("home_page.html", date=date, return_date=return_date, origin=origin,
+                               destination=destination, flights=None, error='Please fill all the fields.',
+                               destinations=destinations, trip_type=trip_type)
+
+    # מקרה 3: חיפוש
     flights = search_flights(date, origin, destination)
+
+    if trip_type == "round" and return_date:
+        return_flights = search_flights(return_date, destination, origin)
+        flights.extend(return_flights)
+
     flights = prepare_flights_for_view(flights)
 
-    return render_template("home_page.html",date=date, origin=origin, destination=destination, flights=flights, error=None)
-
-
-
-#-----------------
-#register_login
-#-----------------
+    return render_template("home_page.html",
+                           date=date,
+                           return_date=return_date,
+                           origin=origin,
+                           destination=destination,
+                           flights=flights,
+                           error=None,
+                           destinations=destinations,
+                           trip_type=trip_type)
+# -----------------
+# register_login
+# -----------------
 
 @app.route("/register-login", methods=["GET", "POST"])
 def register_login_page():
@@ -50,7 +70,7 @@ def register_login_page():
     user = user_login(email, password)
 
     if user is None:
-        return render_template("register_login.html", error= "User not found. Please try again or continue as a guest",
+        return render_template("register_login.html", error="User not found. Please try again or continue as a guest",
                                email=email)
 
     session["email"] = user["email"]
@@ -59,18 +79,20 @@ def register_login_page():
 
     return redirect("/")
 
-#-----------------
-#register_logout
-#-----------------
+
+# -----------------
+# register_logout
+# -----------------
 
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/")
 
-#-----------
-#create_account
-#-----------
+
+# -----------
+# create_account
+# -----------
 
 @app.route("/create-account", methods=["GET", "POST"])
 def create_account_page():
@@ -87,36 +109,36 @@ def create_account_page():
     phone_numbers = request.form.getlist("phone_numbers")
     phone_numbers = [phone.strip() for phone in phone_numbers if phone and phone.strip()]
 
-
-    if not all ([first_name_eng, last_name_eng, email, birth_date, passport, password]) or not phone_numbers:
+    if not all([first_name_eng, last_name_eng, email, birth_date, passport, password]) or not phone_numbers:
         return render_template(
             "create_account.html",
             error="Please fill all the fields.",
             first_name=first_name_eng, last_name=last_name_eng, email=email,
-            date_of_birth=birth_date, passport_number=passport,)
+            date_of_birth=birth_date, passport_number=passport, )
 
     if email_exists(email):
-        return render_template("create_account.html",error="This email is already registered.",
-            first_name=first_name_eng, last_name=last_name_eng, email=email, date_of_birth=birth_date,
-            passport_number=passport)
+        return render_template("create_account.html", error="This email is already registered.",
+                               first_name=first_name_eng, last_name=last_name_eng, email=email,
+                               date_of_birth=birth_date,
+                               passport_number=passport)
 
     if passport_exists(passport):
-        return render_template("create_account.html",error="This passport number is already registered.",
-            first_name=first_name_eng, last_name=last_name_eng, email=email,
-            date_of_birth=birth_date, passport_number=passport)
+        return render_template("create_account.html", error="This passport number is already registered.",
+                               first_name=first_name_eng, last_name=last_name_eng, email=email,
+                               date_of_birth=birth_date, passport_number=passport)
 
     create_account(email, first_name_eng, last_name_eng, birth_date, passport, password, phone_numbers)
 
-    session["user_type"]= "registered"
+    session["user_type"] = "registered"
     session["email"] = email
     session["first_name"] = first_name_eng
 
     return redirect("/")
 
 
-#-----------------
-#manager_login
-#-----------------
+# -----------------
+# manager_login
+# -----------------
 
 @app.route("/manager-login", methods=["GET", "POST"])
 def manager_login_page():
@@ -132,15 +154,14 @@ def manager_login_page():
     manager = manager_login(id_worker, password)
 
     if manager is None:
-        return render_template("manager_login.html", error= "Manager not found. Please try again",
-                                id_worker=id_worker)
+        return render_template("manager_login.html", error="Manager not found. Please try again",
+                               id_worker=id_worker)
 
     session["id_worker"] = manager["id_worker"]
     session["user_type"] = "manager"
     session["first_name"] = manager["first_name"]
 
-    return redirect("/")  #כשיהיה צריך לשים פה את הmanager_portal
-
+    return redirect("/")
 
 
 if __name__ == "__main__":
