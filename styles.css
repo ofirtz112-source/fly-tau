@@ -1,168 +1,548 @@
-from flask import Flask, render_template, request, session, redirect
-# ייבוא הפונקציות מה-DB (כולל החדשה get_all_destinations)
-from DB import (search_flights, user_login, email_exists, passport_exists, create_account, manager_login,
-                chosen_flight_details, airplane_dimensions, get_all_destinations)
-from utils import prepare_flights_for_view, build_seatmap_layout
+/* =========================================
+   1. הגדרות כלליות (General & Reset)
+   ========================================= */
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    background-color: #f4f7fa;
+    color: #2d3748;
+    overflow-x: hidden;
+}
 
-app = Flask(__name__)
-app.secret_key = "LironOfirNivi"
+* {
+    box-sizing: border-box;
+}
+
+/* =========================================
+   2. דף הבית - Hero Section & Navigation
+   ========================================= */
+.full-width-hero {
+    width: 100vw;
+    height: 650px;
+    background-image: url('../images/plane_homepage.avif');
+    background-size: cover;
+    background-position: center;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* שכבת כהות עדינה */
+.full-width-hero::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.25);
+}
+
+/* סרגל עליון שקוף */
+.top-bar-transparent {
+    position: absolute;
+    top: 0; left: 0; width: 100%;
+    padding: 20px 50px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 10;
+}
+
+/* צד שמאל: לוגו וברכה */
+.left-nav {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.logo-container {
+    width: 50px;
+    height: 50px;
+    background-color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+}
+
+.logo-container img {
+    width: 85%;
+    height: auto;
+    object-fit: contain;
+}
+
+.welcome-text {
+    font-size: 1.1rem;
+    color: white;
+    font-weight: 600;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+/* קישורים בצד ימין */
+.nav-links a {
+    color: white;
+    text-decoration: none;
+    margin-left: 30px;
+    font-weight: 500;
+    font-size: 1rem;
+    transition: 0.3s;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.nav-links a:hover {
+    color: #ffd700;
+    text-decoration: underline;
+}
+
+/* כותרות ראשיות */
+.hero-content {
+    text-align: center;
+    z-index: 5;
+    color: white;
+    margin-bottom: 80px;
+}
+
+.hero-main-title {
+    font-family: 'Oswald', sans-serif;
+    font-size: 7rem;
+    margin: 0;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    text-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.hero-sub-title {
+    font-size: 2rem;
+    font-weight: 300;
+    margin-top: 10px;
+    text-shadow: 0 5px 15px rgba(0,0,0,0.5);
+}
+
+/* =========================================
+   3. דף הבית - טופס חיפוש (Search Form)
+   ========================================= */
+.main-content-wrapper {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 0 20px;
+    position: relative;
+    z-index: 20;
+}
+
+.search-form-wide {
+    background: #ffffff;
+    padding: 30px;
+    border-radius: 20px;
+    width: 100%;
+    display: flex;
+    gap: 15px;
+    /* שינוי קריטי: מאפשר שבירת שורות בשביל כפתורי הרדיו */
+    flex-wrap: wrap;
+    align-content: flex-end;
+
+    margin-top: -100px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+    border: 1px solid #e2e8f0;
+}
+
+/* --- כפתורי בחירת סוג נסיעה (Radio) --- */
+.trip-type-toggle {
+    width: 100%; /* תופס שורה שלמה */
+    display: flex;
+    gap: 20px;
+    margin-bottom: 15px;
+    padding-left: 5px;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #4a5568;
+    transition: 0.3s;
+}
+
+.radio-label:hover { color: #1a2a6c; }
+.radio-label input { display: none; } /* הסתרת העיגול המקורי */
+
+/* עיגול מעוצב */
+.radio-custom {
+    width: 18px; height: 18px;
+    border: 2px solid #cbd5e0;
+    border-radius: 50%;
+    position: relative; transition: 0.3s;
+}
+
+.radio-label input:checked + .radio-custom { border-color: #1a2a6c; }
+.radio-label input:checked + .radio-custom::after {
+    content: ''; position: absolute;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 10px; height: 10px;
+    background-color: #1a2a6c; border-radius: 50%;
+}
+/* -------------------------------------- */
+
+.search-field {
+    flex: 1;
+    position: relative;
+    min-width: 200px; /* רוחב מינימלי למניעת כיווץ יתר */
+}
+
+.search-field label {
+    display: block; margin-bottom: 8px;
+    font-weight: 700; font-size: 0.8rem;
+    color: #a0aec0; text-transform: uppercase; letter-spacing: 1px;
+}
+
+.search-field input, .custom-date-btn {
+    width: 100%; height: 60px;
+    border: 1px solid #e2e8f0; border-radius: 10px;
+    font-size: 1.1rem; background: #f8fafc;
+    padding: 0 15px; display: flex; align-items: center;
+    color: #2d3748; transition: 0.3s;
+}
+
+.search-field input:focus, .custom-date-btn:hover {
+    border-color: #1a2a6c; background: #fff;
+}
+
+/* כפתור תאריך מותאם */
+.custom-date-btn { position: relative; cursor: pointer; }
+.hidden-date {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;
+}
+
+/* כפתור חיפוש */
+.btn-search {
+    flex: 0 0 160px; height: 60px;
+    background-color: #1a2a6c; color: white;
+    font-weight: bold; font-size: 1.1rem;
+    border: none; border-radius: 10px; cursor: pointer;
+    transition: 0.3s;
+}
+
+.btn-search:hover {
+    background-color: #2a3a7c; transform: translateY(-2px);
+}
+
+/* =========================================
+   4. דף הבית - יעדים (Destinations)
+   ========================================= */
+.destinations-section {
+    margin-top: 80px; text-align: center; margin-bottom: 80px;
+}
+
+.section-title {
+    font-size: 2.5rem; color: #1a2a6c;
+    margin-bottom: 50px; font-weight: 700;
+}
+
+.destinations-grid {
+    display: flex; justify-content: center; gap: 50px; flex-wrap: wrap;
+}
+
+.dest-item {
+    display: flex; flex-direction: column;
+    align-items: center; cursor: pointer;
+    transition: transform 0.3s ease; width: 140px;
+}
+
+.dest-item:hover { transform: translateY(-10px); }
+
+.icon-circle {
+    width: 120px; height: 120px;
+    border-radius: 50%; overflow: hidden;
+    margin-bottom: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+    border: none; background: transparent;
+}
+
+.icon-circle img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+}
+
+.dest-item span {
+    font-size: 1.2rem; color: #2d3748;
+    font-weight: 600; margin-top: 10px;
+}
+
+/* =========================================
+   5. חלון קופץ (Modal)
+   ========================================= */
+.modal {
+    display: none; position: fixed; z-index: 100;
+    left: 0; top: 0; width: 100%; height: 100%;
+    background-color: rgba(0,0,0,0.6); backdrop-filter: blur(5px);
+}
+
+.modal-content {
+    background-color: #fefefe; margin: 10% auto; padding: 40px;
+    border-radius: 20px; width: 90%; max-width: 500px;
+    text-align: center; animation: slideDown 0.4s ease;
+    box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+}
+
+@keyframes slideDown {
+    from { transform: translateY(-50px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+.close-btn {
+    position: absolute; top: 20px; right: 25px;
+    font-size: 28px; cursor: pointer; color: #aaa; transition: 0.3s;
+}
+.close-btn:hover { color: #1a2a6c; }
+
+#modal-title { color: #1a2a6c; font-size: 2rem; margin-bottom: 20px; font-family: 'Oswald', sans-serif; }
+#modal-text { font-size: 1.1rem; line-height: 1.6; color: #4a5568; margin-bottom: 25px; }
+.fun-fact { background-color: #f0f9ff; padding: 15px; border-radius: 10px; border-left: 4px solid #1a2a6c; text-align: left; }
+
+/* =========================================
+   6. טבלת טיסות (Flights Table)
+   ========================================= */
+.results-container { margin-top: 50px; margin-bottom: 50px; }
+.flights-table { width: 100%; border-collapse: separate; border-spacing: 0 15px; }
+.flight-row { background: white; box-shadow: 0 2px 10px rgba(0,0,0,0.05); border-radius: 15px; }
+.flight-row td { padding: 25px; vertical-align: middle; }
+.dt { font-weight: 800; font-size: 1.4rem; color: #1a2a6c; }
+.sub { color: #718096; font-size: 0.9rem; }
+.arrow { color: #cbd5e0; font-size: 1.8rem; text-align: center; }
+.col-price { color: #38a169; font-weight: 800; font-size: 1.2rem; }
+.btn { background-color: #1a2a6c; color: white; padding: 10px 25px; border-radius: 8px; text-decoration: none; font-weight: 600; transition: 0.3s;}
+.btn:hover { background-color: #2a3a7c; }
+
+.field-error { position: absolute; bottom: -20px; left: 0; width: 100%; font-size: 0.75rem; color: #e53e3e; font-weight: 600; }
+.global-error { color: #e53e3e; text-align: center; font-weight: 600; font-size: 1.1rem; }
 
 
-# ----------------
-# home_page_screen
-# ----------------
-@app.route("/", methods=["GET"])
-def home_page():
-    # קבלת הנתונים מהטופס
-    trip_type = (request.args.get("trip_type") or "oneway").strip()
-    date = (request.args.get("date") or "").strip()
-    return_date = (request.args.get("return_date") or "").strip()
-    origin = (request.args.get("origin") or "").strip()
-    destination = (request.args.get("destination") or "").strip()
+/* =========================================
+   7. דפי התחברות והרשמה (Login & Register)
+   ========================================= */
+.login-page-body {
+    margin: 0; padding: 0; height: 100vh;
+    font-family: 'Inter', sans-serif;
+    background-image: url('../images/plane_homepage.avif');
+    background-size: cover; background-position: center;
+    display: flex; align-items: center; justify-content: center;
+}
 
-    searched = bool(date or origin or destination)
-    destinations = get_all_destinations()
+.login-wrapper {
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    display: flex; align-items: center; justify-content: center;
+}
 
-    # מקרה 1: כניסה ראשונית
-    if not searched:
-        return render_template("home_page.html", date="", return_date="", origin="", destination="",
-                               flights=None, error=None, destinations=destinations, trip_type=trip_type)
+.login-card {
+    background: #ffffff; width: 100%; max-width: 450px;
+    padding: 50px 40px; border-radius: 20px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    text-align: center; animation: slideUp 0.5s ease;
+}
 
-    # מקרה 2: חסרים פרטים
-    if not (date and origin and destination):
-        return render_template("home_page.html", date=date, return_date=return_date, origin=origin,
-                               destination=destination, flights=None, error='Please fill all the fields.',
-                               destinations=destinations, trip_type=trip_type)
+@keyframes slideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
 
-    # מקרה 3: חיפוש
-    flights = search_flights(date, origin, destination)
+.form-logo img { height: 60px; margin-bottom: 20px; }
+.form-title { font-family: 'Oswald', sans-serif; font-size: 2rem; color: #1a2a6c; margin: 0 0 10px 0; }
+.form-subtitle { color: #718096; font-size: 0.95rem; margin-bottom: 30px; }
 
-    if trip_type == "round" and return_date:
-        return_flights = search_flights(return_date, destination, origin)
-        flights.extend(return_flights)
+.styled-form { text-align: left; }
+.input-group { margin-bottom: 20px; }
+.input-group label { display: block; font-size: 0.85rem; font-weight: 600; color: #4a5568; margin-bottom: 8px; text-transform: uppercase; }
 
-    flights = prepare_flights_for_view(flights)
+.input-group input, .phone-input {
+    width: 100%; padding: 12px 15px;
+    border: 1px solid #e2e8f0; border-radius: 10px;
+    font-size: 1rem; background-color: #f8fafc; transition: 0.3s;
+}
 
-    return render_template("home_page.html",
-                           date=date,
-                           return_date=return_date,
-                           origin=origin,
-                           destination=destination,
-                           flights=flights,
-                           error=None,
-                           destinations=destinations,
-                           trip_type=trip_type)
-# -----------------
-# register_login
-# -----------------
+.input-group input:focus, .phone-input:focus {
+    outline: none; border-color: #1a2a6c; background-color: #fff;
+    box-shadow: 0 0 0 3px rgba(26, 42, 172, 0.1);
+}
 
-@app.route("/register-login", methods=["GET", "POST"])
-def register_login_page():
-    if request.method == "GET":
-        return render_template("register_login.html", error=None)
+.btn-full {
+    width: 100%; padding: 15px;
+    background-color: #1a2a6c; color: white;
+    border: none; border-radius: 10px;
+    font-size: 1.1rem; font-weight: 700;
+    cursor: pointer; transition: 0.3s; margin-top: 10px;
+}
+.btn-full:hover { background-color: #2a3a7c; transform: translateY(-2px); }
 
-    email = (request.form.get("email") or "").strip()
-    password = (request.form.get("password") or "").strip()
+.error-message {
+    background-color: #fff5f5; color: #e53e3e;
+    padding: 10px; border-radius: 8px; font-size: 0.9rem;
+    margin-bottom: 20px; border: 1px solid #fed7d7; text-align: center;
+}
 
-    if not email or not password:
-        return render_template("register_login.html", error="Please enter email and password.")
+.form-footer {
+    margin-top: 30px; padding-top: 20px;
+    border-top: 1px solid #e2e8f0; font-size: 0.95rem; color: #718096;
+}
+.create-account-link { color: #1a2a6c; font-weight: 700; text-decoration: none; margin-left: 5px; }
+.create-account-link:hover { text-decoration: underline; }
 
-    user = user_login(email, password)
+/* ספציפי להרשמה (Register) */
+.register-card { max-width: 550px; }
+.form-row { display: flex; gap: 15px; }
+.form-row .input-group { flex: 1; }
+.add-phone-link {
+    background: none; border: none; color: #1a2a6c;
+    font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    padding: 0; margin-top: 5px; transition: color 0.2s;
+}
+.add-phone-link:hover { color: #38a169; text-decoration: underline; }
 
-    if user is None:
-        return render_template("register_login.html", error="User not found. Please try again or continue as a guest",
-                               email=email)
+/* =========================================
+   8. ספציפי למנהלים (Manager Portal)
+   ========================================= */
 
-    session["email"] = user["email"]
-    session["user_type"] = "registered"
-    session["first_name"] = user["first_name_eng"]
+/* רקע העמוד - כחול קלאסי ונקי */
+.manager-page-body {
+    margin: 0; padding: 0; height: 100vh;
+    font-family: 'Inter', sans-serif;
+    /* גרדיאנט כחול-רויאל עמוק */
+    background: linear-gradient(135deg, #1a2a6c 0%, #2a408c 100%);
+    display: flex; align-items: center; justify-content: center;
+}
 
-    return redirect("/")
+/* הכרטיס הלבן של המנהלים */
+.manager-card {
+    border-top: 5px solid #d4af37; /* פס זהב */
+    max-width: 600px; /* רחב כדי להכיל את הטקסט הארוך */
+    width: 100%;
+}
 
+/* כותרת ראשית - FlyTAU Admin */
+.admin-title {
+    font-family: 'Oswald', sans-serif;
+    font-size: 2.5rem; color: #1a2a6c;
+    margin: 0 0 5px 0; letter-spacing: 1px;
+    text-transform: uppercase;
+}
 
-# -----------------
-# register_logout
-# -----------------
+/* תת-כותרת - RESTRICTED ACCESS */
+.admin-subtitle {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem; color: #718096;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    font-weight: 700; margin-bottom: 30px;
+    border-bottom: 1px solid #e2e8f0; padding-bottom: 20px;
+}
 
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect("/")
+/* כפתור כניסה למנהלים */
+.btn-manager {
+    background-color: #0f1c4d; /* כחול כהה מאוד */
+    display: flex; align-items: center; justify-content: center;
+}
+.btn-manager:hover {
+    background-color: #0a1233; transform: translateY(-2px);
+}
 
+/* חלק תחתון (Footer) */
+.admin-footer {
+    margin-top: 30px; display: flex;
+    flex-direction: column; align-items: center; gap: 10px;
+}
 
-# -----------
-# create_account
-# -----------
+.not-admin-label {
+    background-color: #f7fafc; color: #a0aec0;
+    font-size: 0.7rem; font-weight: 700;
+    padding: 4px 8px; border-radius: 4px;
+    text-transform: uppercase; letter-spacing: 1px;
+}
 
-@app.route("/create-account", methods=["GET", "POST"])
-def create_account_page():
-    if request.method == "GET":
-        return render_template("create_account.html", error=None)
+.back-home-link {
+    text-decoration: none; color: #4a5568;
+    font-size: 0.9rem; font-weight: 600; transition: 0.3s;
+}
+.back-home-link:hover { color: #1a2a6c; }
 
-    first_name_eng = (request.form.get("first_name") or "").strip()
-    last_name_eng = (request.form.get("last_name") or "").strip()
-    email = (request.form.get("email") or "").strip()
-    birth_date = (request.form.get("date_of_birth") or "").strip()
-    passport = (request.form.get("passport_number") or "").strip()
-    password = (request.form.get("password") or "").strip()
+/* =========================================
+   9. עיצוב נוסף לדפי ניהול הזמנות (My Bookings)
+   ========================================= */
 
-    phone_numbers = request.form.getlist("phone_numbers")
-    phone_numbers = [phone.strip() for phone in phone_numbers if phone and phone.strip()]
+/* תיקון לטבלאות כדי שייראו כמו בדף הבית */
+.results-container {
+    width: 100%;
+    margin-top: 20px;
+}
 
-    if not all([first_name_eng, last_name_eng, email, birth_date, passport, password]) or not phone_numbers:
-        return render_template(
-            "create_account.html",
-            error="Please fill all the fields.",
-            first_name=first_name_eng, last_name=last_name_eng, email=email,
-            date_of_birth=birth_date, passport_number=passport, )
+.flights-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 15px;
+}
 
-    if email_exists(email):
-        return render_template("create_account.html", error="This email is already registered.",
-                               first_name=first_name_eng, last_name=last_name_eng, email=email,
-                               date_of_birth=birth_date,
-                               passport_number=passport)
+.flight-row {
+    background: white;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+    border-radius: 15px;
+    overflow: hidden;
+}
 
-    if passport_exists(passport):
-        return render_template("create_account.html", error="This passport number is already registered.",
-                               first_name=first_name_eng, last_name=last_name_eng, email=email,
-                               date_of_birth=birth_date, passport_number=passport)
+.flight-row td {
+    padding: 20px;
+    vertical-align: middle;
+}
 
-    create_account(email, first_name_eng, last_name_eng, birth_date, passport, password, phone_numbers)
+/* סגנון לכותרות בתוך דף ההזמנות */
+.booking-section-title {
+    color: #1a2a6c;
+    font-family: 'Oswald', sans-serif;
+    margin-top: 40px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #1a2a6c;
+    padding-bottom: 10px;
+}
 
-    session["user_type"] = "registered"
-    session["email"] = email
-    session["first_name"] = first_name_eng
+/* עיצוב רשימת הנוסעים והמושבים */
+.passenger-info-list {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0 0 0;
+    background: #f8fafc;
+    padding: 15px;
+    border-radius: 10px;
+}
 
-    return redirect("/")
+.passenger-info-item {
+    font-size: 0.9rem;
+    color: #4a5568;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
 
+/* כפתור ביטול אדום */
+.btn-cancel {
+    background-color: #e53e3e;
+    color: white;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.3s;
+}
 
-# -----------------
-# manager_login
-# -----------------
+.btn-cancel:hover {
+    background-color: #c53030;
+    transform: translateY(-2px);
+}
 
-@app.route("/manager-login", methods=["GET", "POST"])
-def manager_login_page():
-    if request.method == "GET":
-        return render_template("manager_login.html", error=None, id_worker="")
-
-    id_worker = (request.form.get("id_worker") or "").strip()
-    password = (request.form.get("password") or "").strip()
-
-    if not id_worker or not password:
-        return render_template("manager_login.html", error="Please enter ID and password.", id_worker=id_worker)
-
-    manager = manager_login(id_worker, password)
-
-    if manager is None:
-        return render_template("manager_login.html", error="Manager not found. Please try again",
-                               id_worker=id_worker)
-
-    session["id_worker"] = manager["id_worker"]
-    session["user_type"] = "manager"
-    session["first_name"] = manager["first_name"]
-
-    return redirect("/")
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+/* היסטוריית הזמנות (חצי שקוף) */
+.past-booking-row {
+    opacity: 0.65;
+    background: #edf2f7;
+}
