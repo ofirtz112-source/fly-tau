@@ -180,69 +180,25 @@ app.secret_key = 'LironOfirNivi'
 def home():
     return redirect(url_for('view_bookings'))
 
-
 @app.route('/my-bookings', methods=['GET', 'POST'])
 def view_bookings():
     email = session.get('email')
+    
+    # אם המשתמש לא מחובר אבל שלח אימייל בטופס (למשל אורח)
     id_booking = None
-
     if not email and request.method == 'POST':
         email = request.form.get('email')
         id_booking = request.form.get('id_booking')
 
     if email:
-        # --- כאן השינוי: שימוש בפונקציה מהקובץ החיצוני ---
-        conn = get_connection()
-        cursor = conn.cursor(dictionary=True)
-
-        # השאילתה שלך נשארה בדיוק אותו דבר
-        query = """
-            SELECT b.id_booking, b.booking_date, b.status AS booking_status, b.total_price,
-                   t.passenger_name, t.passenger_passport, t.row_number, t.seat_letter, t.class_type,
-                   f.departure_time, f.flight_status,
-                   r.origin, r.destination
-            FROM bookings b
-            JOIN tickets t ON b.id_booking = t.id_booking
-            JOIN flights f ON t.id_flight = f.id_flight
-            JOIN routes r ON f.id_route = r.id_route
-            WHERE (b.customers_email = %s OR b.registered_email = %s)
-        """
-        params = [email, email]
-
-        if id_booking:
-            query += " AND b.id_booking = %s"
-            params.append(id_booking)
-
-        cursor.execute(query, tuple(params))
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-
-        # עיבוד הנתונים
-        bookings_dict = {}
-        for row in results:
-            bid = row['id_booking']
-            if bid not in bookings_dict:
-                bookings_dict[bid] = {
-                    'info': row,
-                    'tickets': []
-                }
-            bookings_dict[bid]['tickets'].append({
-                'name': row['passenger_name'],
-                'passport': row['passenger_passport'],
-                'seat': f"{row['row_number']}{row['seat_letter']}",
-                'class': row['class_type']
-            })
-
+        # שימוש בפונקציה החדשה שיצרנו ב-DB
+        bookings_dict = get_user_bookings(email, id_booking)
+        
         current_time = datetime.now()
-
-        # השארתי רק לוגיקה אחת לסינון (בקוד שלך הייתה כפילות שיצרה באגים)
-        # תיקנתי את השימוש ב-now שהיה חסר ל-current_time
         future = []
         past = []
 
         for b in bookings_dict.values():
-            # המרה לתאריך אם צריך
             flight_time = b['info']['departure_time']
             if isinstance(flight_time, str):
                 flight_time = datetime.strptime(flight_time, '%Y-%m-%d %H:%M:%S')
@@ -256,48 +212,18 @@ def view_bookings():
 
     return render_template('search_bookings.html')
 
-
+# -----------------
+# Cancel Booking (New)
+# -----------------
 @app.route('/cancel-booking', methods=['POST'])
 def cancel_booking():
     booking_id = request.form.get('booking_id')
-
-    # --- כאן השינוי: שימוש בפונקציה מהקובץ החיצוני ---
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    cursor.execute("""
-            SELECT f.departure_time, b.total_price 
-            FROM bookings b 
-            JOIN tickets t ON b.id_booking = t.id_booking 
-            JOIN flights f ON t.id_flight = f.id_flight 
-            WHERE b.id_booking = %s LIMIT 1
-        """, (booking_id,))
-    flight = cursor.fetchone()
-
-    if flight:
-        flight_time = flight['departure_time']
-        # המרה בטיחותית לתאריך
-        if isinstance(flight_time, str):
-            flight_time = datetime.strptime(flight_time, '%Y-%m-%d %H:%M:%S')
-
-        time_diff = flight_time - datetime.now()
-
-        if time_diff > timedelta(hours=36):
-            new_price = float(flight['total_price']) * 0.05
-            cursor.execute("""
-                        UPDATE bookings 
-                        SET status = 'Cancelled_Client', total_price = %s 
-                        WHERE id_booking = %s
-                    """, (new_price, booking_id))
-            conn.commit()
-            flash(f"Order {booking_id} cancelled. 5% fee charged: {new_price} ILS.")
-        else:
-            flash("Cannot cancel: Flight is in less than 36 hours.")
-
-    cursor.close()
-    conn.close()
+    
+    # שימוש בפונקציה החדשה ב-DB
+    success, message = cancel_booking_in_db(booking_id)
+    
+    flash(message)
     return redirect(url_for('view_bookings'))
 
-
-if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+if __name__ == "__main__":
+    app.run(debug=True) # תריץ רק אפליקציה אחת
