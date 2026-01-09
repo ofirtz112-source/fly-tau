@@ -1,0 +1,96 @@
+from datetime import timedelta
+
+class Manager:
+    def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, password, phone_number):
+        self.id_worker = id_worker
+        self.first_name = first_name
+        self.last_name = last_name
+        self.start_date = start_date
+        self.city = city
+        self.street = street
+        self.house_number = house_number
+        self.password = password
+        self.phone_number = phone_number
+
+    # אכיפת הכלל: מנהל לא יכול להזמין כרטיס לעצמו
+    def book_ticket(self):
+        raise PermissionError("Managers are strictily prohibited from booking tickets for themselves due to company policy.")
+
+    def __repr__(self):
+        return f"<Manager {self.first_name} {self.last_name} ({self.id_worker})>"
+
+class Plane:
+    def __init__(self, id_plane, manufacturer, size, purchase_date):
+        self.id_plane = id_plane
+        self.manufacturer = manufacturer
+        self.size = size  # 'Big' or 'Small'
+        self.purchase_date = purchase_date
+
+    def __repr__(self):
+        return f"<Plane {self.id_plane} ({self.size})>"
+
+
+class Flight:
+    def __init__(self, id_flight, departure_time, flight_status, id_route, id_plane, manager_id, duration_obj):
+        self.id_flight = id_flight
+        self.departure_time = departure_time
+        self.flight_status = flight_status
+        self.id_route = id_route
+        self.id_plane = id_plane  # זה אובייקט Plane או רק ID, תלוי איך שולפים
+        self.manager_id = manager_id
+
+        # חישוב אורך הטיסה והאם היא ארוכה
+        self.duration = duration_obj  # מצפה לאובייקט timedelta
+        self.is_long_flight = self.check_is_long()
+
+        # רשימות שימולאו בהמשך על ידי שאילתות
+        self.pilots = []
+        self.flight_attendants = []
+
+    def check_is_long(self):
+        # טיסה ארוכה מוגדרת כמעל 6 שעות
+        if isinstance(self.duration, timedelta):
+            return self.duration.total_seconds() / 3600 > 6
+        return False
+
+    def validate_plane_assignment(self, plane_obj):
+        """
+        בדיקת התאמת מטוס לטיסה:
+        מטוס קטן - רק טיסות קצרות.
+        מטוס גדול - גם וגם.
+        """
+        if plane_obj.size == 'Small' and self.is_long_flight:
+            return False, "Small planes cannot operate long flights (> 6 hours)."
+        return True, "OK"
+
+    def validate_crew_assignment(self):
+        """
+        בדיקת תקינות צוות לפי חוקי החברה:
+        1. כמויות (3 טייסים ו-6 דיילים לגדול, 2 ו-3 לקטן).
+        2. הכשרות (בטיסה ארוכה חובה שכולם יהיו מוכשרים לטיסות ארוכות).
+        """
+        # נניח ש-self.id_plane הוא אובייקט של Plane (או שנשלוף אותו)
+        # לצורך הדוגמה נניח שיש לנו את הגודל:
+        plane_size = self.id_plane.size
+
+        # בדיקת כמויות
+        num_pilots = len(self.pilots)
+        num_attendants = len(self.flight_attendants)
+
+        if plane_size == 'Big':
+            if num_pilots != 3 or num_attendants != 6:
+                return False, f"Big plane requires 3 pilots and 6 attendants. (Current: {num_pilots}, {num_attendants})"
+        elif plane_size == 'Small':
+            if num_pilots != 2 or num_attendants != 3:
+                return False, f"Small plane requires 2 pilots and 3 attendants. (Current: {num_pilots}, {num_attendants})"
+
+        # בדיקת הכשרה לטיסות ארוכות (long_flights = 1)
+        if self.is_long_flight:
+            for p in self.pilots:
+                if not p.get('long_flights'):  # הנחה שזה dict או אובייקט עם תכונה
+                    return False, f"Pilot {p['id_worker']} is not qualified for long flights."
+            for fa in self.flight_attendants:
+                if not fa.get('long_flights'):
+                    return False, f"Attendant {fa['id_worker']} is not qualified for long flights."
+
+        return True, "Crew is valid."
