@@ -1,23 +1,49 @@
 from datetime import timedelta
+from abc import ABC, abstractmethod
 
-class Manager:
-    def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, password, phone_number):
-        self.id_worker = id_worker
-        self.first_name = first_name
-        self.last_name = last_name
-        self.start_date = start_date
-        self.city = city
-        self.street = street
-        self.house_number = house_number
-        self.password = password
-        self.phone_number = phone_number
+class worker(abc):
+    class Manager:
+        def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, password, phone_number):
+            self.id_worker = id_worker
+            self.first_name = first_name
+            self.last_name = last_name
+            self.start_date = start_date
+            self.city = city
+            self.street = street
+            self.house_number = house_number
+            self.password = password
+            self.phone_number = phone_number
+    
+        # אכיפת הכלל: מנהל לא יכול להזמין כרטיס לעצמו
+        def book_ticket(self):
+            raise PermissionError("Managers are strictily prohibited from booking tickets for themselves due to company policy.")
+    
+        def __repr__(self):
+            return f"<Manager {self.first_name} {self.last_name} ({self.id_worker})>"
 
-    # אכיפת הכלל: מנהל לא יכול להזמין כרטיס לעצמו
-    def book_ticket(self):
-        raise PermissionError("Managers are strictily prohibited from booking tickets for themselves due to company policy.")
+    class pilots:
+        def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, phone_number, long_flights):
+            self.id_worker = id_worker
+            self.first_name = first_name
+            self.last_name = last_name
+            self.start_date = start_date
+            self.city = city
+            self.street = street
+            self.house_number = house_number
+            self.phone_number = phone_number
+            self.long_flights = long_flights
 
-    def __repr__(self):
-        return f"<Manager {self.first_name} {self.last_name} ({self.id_worker})>"
+    class flight_attendants:
+        def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, phone_number, long_flights):
+            self.id_worker = id_worker
+            self.first_name = first_name
+            self.last_name = last_name
+            self.start_date = start_date
+            self.city = city
+            self.street = street
+            self.house_number = house_number
+            self.phone_number = phone_number
+            self.long_flights = long_flights
 
 class Plane:
     def __init__(self, id_plane, manufacturer, purchase_date):
