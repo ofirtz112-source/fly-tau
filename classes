@@ -20,14 +20,40 @@ class Manager:
         return f"<Manager {self.first_name} {self.last_name} ({self.id_worker})>"
 
 class Plane:
-    def __init__(self, id_plane, manufacturer, size, purchase_date):
+    def __init__(self, id_plane, manufacturer, purchase_date):
         self.id_plane = id_plane
         self.manufacturer = manufacturer
-        self.size = size  # 'Big' or 'Small'
         self.purchase_date = purchase_date
+        self.dimensions = {"Business": None, "Economy": None}
+
+    def get_dimensions(self):
+        return self.dimensions
+
+    def has_class(self, class_type: str) -> bool:
+        return self.dimensions.get(class_type) is not None
+
+    def rows_cols(self, class_type:str):
+        d = self.dimensions.get(class_type)
+        if not d:
+            return 0, 0
+        return int(d["rows"]), int(d["cols"])
 
     def __repr__(self):
-        return f"<Plane {self.id_plane} ({self.size})>"
+        return f"<Plane {self.id_plane} >"
+
+class SmallPlane(Plane):
+    def __init__(self, id_plane, manufacturer, purchase_date, eco_rows, eco_cols):
+        super().__init__(id_plane, manufacturer, purchase_date)
+        self.dimensions["Economy"] = {"rows":int(eco_rows), "cols":int(eco_cols)}
+        self.dimensions["Business"] = None
+
+
+class BigPlane(Plane):
+    def __init__(self, id_plane, manufacturer, purchase_date, eco_rows, eco_cols, bus_rows, bus_cols):
+        super().__init__(id_plane, manufacturer, purchase_date)
+        self.dimensions["Economy"] = {"rows": int(eco_rows), "cols": int(eco_cols)}
+        self.dimensions["Business"] = {"rows": int(bus_rows), "cols": int(bus_cols)}
+
 
 
 class Flight:
