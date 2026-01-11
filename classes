@@ -1,7 +1,7 @@
 from datetime import timedelta
 from abc import ABC, abstractmethod
 
-class worker(abc):
+class worker(ABC):
     class Manager(worker):
         def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, password, phone_number):
             self.id_worker = id_worker
