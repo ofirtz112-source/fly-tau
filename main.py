@@ -1,300 +1,263 @@
-from flask import Flask, render_template, request, session, redirect
-# ייבוא הפונקציות מה-DB (כולל החדשה get_all_destinations)
-from DB import (search_flights, user_login, email_exists, passport_exists, create_account, manager_login,
-                chosen_flight_details, airplane_dimensions, get_all_destinations)
-from utils import prepare_flights_for_view, build_seatmap_layout
-
-app = Flask(__name__)
-app.secret_key = "LironOfirNivi"
-
-
-# ----------------
-# home_page_screen
-# ----------------
-@app.route("/", methods=["GET"])
-def home_page():
-    # קבלת הנתונים מהטופס
-    trip_type = (request.args.get("trip_type") or "oneway").strip()
-    date = (request.args.get("date") or "").strip()
-    return_date = (request.args.get("return_date") or "").strip()
-    origin = (request.args.get("origin") or "").strip()
-    destination = (request.args.get("destination") or "").strip()
-
-    searched = bool(date or origin or destination)
-    destinations = get_all_destinations()
-
-    # מקרה 1: כניסה ראשונית
-    if not searched:
-        return render_template("home_page.html", date="", return_date="", origin="", destination="",
-                               flights=None, error=None, destinations=destinations, trip_type=trip_type)
-
-    # מקרה 2: חסרים פרטים
-    if not (date and origin and destination):
-        return render_template("home_page.html", date=date, return_date=return_date, origin=origin,
-                               destination=destination, flights=None, error='Please fill all the fields.',
-                               destinations=destinations, trip_type=trip_type)
-
-    # מקרה 3: חיפוש
-    flights = search_flights(date, origin, destination)
-
-    if trip_type == "round" and return_date:
-        return_flights = search_flights(return_date, destination, origin)
-        flights.extend(return_flights)
-
-    flights = prepare_flights_for_view(flights)
-
-    return render_template("home_page.html",
-                           date=date,
-                           return_date=return_date,
-                           origin=origin,
-                           destination=destination,
-                           flights=flights,
-                           error=None,
-                           destinations=destinations,
-                           trip_type=trip_type)
-# -----------------
-# register_login
-# -----------------
-
-@app.route("/register-login", methods=["GET", "POST"])
-def register_login_page():
-    if request.method == "GET":
-        return render_template("register_login.html", error=None)
-
-    email = (request.form.get("email") or "").strip()
-    password = (request.form.get("password") or "").strip()
-
-    if not email or not password:
-        return render_template("register_login.html", error="Please enter email and password.")
-
-    user = user_login(email, password)
-
-    if user is None:
-        return render_template("register_login.html", error="User not found. Please try again or continue as a guest",
-                               email=email)
-
-    session["email"] = user["email"]
-    session["user_type"] = "registered"
-    session["first_name"] = user["first_name_eng"]
-
-    return redirect("/")
-
-
-# -----------------
-# register_logout
-# -----------------
-
-@app.route("/logout")
-def logout():
-    session.clear()
-    return redirect("/")
-
-
-# -----------
-# create_account
-# -----------
-
-@app.route("/create-account", methods=["GET", "POST"])
-def create_account_page():
-    if request.method == "GET":
-        return render_template("create_account.html", error=None)
-
-    first_name_eng = (request.form.get("first_name") or "").strip()
-    last_name_eng = (request.form.get("last_name") or "").strip()
-    email = (request.form.get("email") or "").strip()
-    birth_date = (request.form.get("date_of_birth") or "").strip()
-    passport = (request.form.get("passport_number") or "").strip()
-    password = (request.form.get("password") or "").strip()
-
-    phone_numbers = request.form.getlist("phone_numbers")
-    phone_numbers = [phone.strip() for phone in phone_numbers if phone and phone.strip()]
-
-    if not all([first_name_eng, last_name_eng, email, birth_date, passport, password]) or not phone_numbers:
-        return render_template(
-            "create_account.html",
-            error="Please fill all the fields.",
-            first_name=first_name_eng, last_name=last_name_eng, email=email,
-            date_of_birth=birth_date, passport_number=passport, )
-
-    if email_exists(email):
-        return render_template("create_account.html", error="This email is already registered.",
-                               first_name=first_name_eng, last_name=last_name_eng, email=email,
-                               date_of_birth=birth_date,
-                               passport_number=passport)
-
-    if passport_exists(passport):
-        return render_template("create_account.html", error="This passport number is already registered.",
-                               first_name=first_name_eng, last_name=last_name_eng, email=email,
-                               date_of_birth=birth_date, passport_number=passport)
-
-    create_account(email, first_name_eng, last_name_eng, birth_date, passport, password, phone_numbers)
-
-    session["user_type"] = "registered"
-    session["email"] = email
-    session["first_name"] = first_name_eng
-
-    return redirect("/")
-
-
-# -----------------
-# manager_login
-# -----------------
-
-@app.route("/manager-login", methods=["GET", "POST"])
-def manager_login_page():
-    if request.method == "GET":
-        return render_template("manager_login.html", error=None, id_worker="")
-
-    id_worker = (request.form.get("id_worker") or "").strip()
-    password = (request.form.get("password") or "").strip()
-
-    if not id_worker or not password:
-        return render_template("manager_login.html", error="Please enter ID and password.", id_worker=id_worker)
-
-    manager = manager_login(id_worker, password)
-
-    if manager is None:
-        return render_template("manager_login.html", error="Manager not found. Please try again",
-                               id_worker=id_worker)
-
-    session["id_worker"] = manager["id_worker"]
-    session["user_type"] = "manager"
-    session["first_name"] = manager["first_name"]
-
-    return redirect("/")
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
-from flask import Flask, render_template, request, session, redirect, url_for, flash
-import mysql.connector
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from models import Customer, Manager, Flight, Booking
+from database import Database
 from datetime import datetime, timedelta
 
-# --- ייבוא פונקציית החיבור מהקובץ החיצוני שלך ---
-from DB import get_connection
-
 app = Flask(__name__)
-app.secret_key = 'LironOfirNivi'
+app.secret_key = 'flytau_secret_key'
+db = Database()
+
+# --- 1. עמודי לקוח וחיפוש ---
 
 @app.route('/')
-def home():
-    return redirect(url_for('view_bookings'))
+def home_page():
+    destinations = db.get_all_destinations()
+
+    origin = request.args.get('origin')
+    destination = request.args.get('destination')
+    date = request.args.get('date')
+    return_date = request.args.get('return_date')
+    trip_type = request.args.get('trip_type')
+
+    outbound_flights = []
+    return_flights = []
+    # אתחול המשתנה כדי למנוע שגיאות ב-HTML
+    suggested_dates = {"outbound": None, "return": None}
+    search_performed = False
+
+    if origin and destination and date:
+        search_performed = True
+        outbound_flights = Flight.search(date, origin, destination)
+
+        if not outbound_flights:
+            suggested_dates["outbound"] = db.get_nearest_flight_date(origin, destination, date)
+
+        if trip_type == 'round' and return_date:
+            return_flights = Flight.search(return_date, destination, origin)
+
+            if not return_flights:
+                # בודקים אחרי תאריך ההמראה (הלוך)
+                base_date = suggested_dates["outbound"] if suggested_dates["outbound"] else date
+                suggested_dates["return"] = db.get_nearest_flight_date(destination, origin, base_date, after=True)
+
+    return render_template('home_page.html',
+                           destinations=destinations,
+                           outbound_flights=outbound_flights,
+                           return_flights=return_flights,
+                           suggested_dates=suggested_dates,
+                           search_performed=search_performed,
+                           origin=origin,
+                           destination=destination,
+                           date=date,
+                           return_date=return_date,
+                           trip_type=trip_type)
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def register_login_page():
+    email = None
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        user = Customer.login(email, password)
+        if user:
+            session['user_id'] = user.email
+            session['first_name'] = user.first_name
+            session['role'] = 'customer'
+            session['email'] = user.email
+            return redirect(url_for('home_page'))
+        flash("Invalid email or password", "danger")
+    return render_template('register_login.html', email=email)
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def create_account_page():
+    if request.method == 'POST':
+        f = request.form
+
+        # שימי לב: אנחנו שולחים את הנתונים למודל (ודאי שה-HTML שלך שולח 'passport_number')
+        success, message = Customer.register(
+            f.get('email'), f.get('first_name'), f.get('last_name'),
+            f.get('date_of_birth'), f.get('passport_number'),
+            f.get('password'), request.form.getlist('phone_numbers')
+        )
+
+        if success:
+            # --- השינוי הגדול: כניסה אוטומטית (Auto-Login) ---
+            # במקום לשלוח להתחברות, אנחנו מכניסים את הפרטים ל-SESSION מיד
+            session['user_id'] = f.get('email')
+            session['first_name'] = f.get('first_name')
+            session['role'] = 'customer'
+            session['email'] = f.get('email')
+
+            # הודעה מעוצבת ומזמינה
+            flash(f"Registration successful! Welcome to FlyTAU, {f.get('first_name')}.", "success")
+
+            # שליחה ישירות לדף הבית
+            return redirect(url_for('home_page'))
+
+        return render_template('create_account.html', error=message, **f)
+    return render_template('create_account.html')
+
 
 @app.route('/my-bookings', methods=['GET', 'POST'])
 def view_bookings():
-    email = session.get('email')
-    
-    # אם המשתמש לא מחובר אבל שלח אימייל בטופס (למשל אורח)
-    id_booking = None
-    if not email and request.method == 'POST':
+    """הצגת הזמנות ללקוח רשום או לאורח - גרסה מעודכנת"""
+    now = datetime.now()
+
+    if request.method == 'POST':
+        # --- לוגיקה לאורח (Guest) ---
         email = request.form.get('email')
-        id_booking = request.form.get('id_booking')
+        booking_id = request.form.get('id_booking')
 
-    if email:
-        # שימוש בפונקציה החדשה שיצרנו ב-DB
-        bookings_dict = get_user_bookings(email, id_booking)
-        
-        current_time = datetime.now()
-        future = []
-        past = []
+        if not email or not booking_id:
+            flash("Please provide both email and booking ID.", "error")
+            return render_template('search_bookings.html')
 
-        for b in bookings_dict.values():
-            flight_time = b['info']['departure_time']
-            if isinstance(flight_time, str):
-                flight_time = datetime.strptime(flight_time, '%Y-%m-%d %H:%M:%S')
+        single_booking = Booking.get_specific_booking(email, booking_id)
 
-            if flight_time >= current_time:
-                future.append(b)
-            else:
-                past.append(b)
+        if single_booking:
+            # שימוש בפונקציה המרכזית שיצרנו במודל למיון ההזמנה
+            # אנחנו שולחים רשימה עם פריט אחד ([single_booking]) כי הפונקציה מצפה לרשימה
+            conf, comp, c_you, c_sys = Booking.organize_bookings([single_booking])
 
-        return render_template('bookings_results.html', future=future, past=past, email=email)
+            return render_template('bookings_results.html',
+                                   confirmed=conf, completed=comp,
+                                   cancelled_by_you=c_you, cancelled_by_system=c_sys,
+                                   is_guest=True, now=now)
+        else:
+            flash("No booking found with these details.", "error")
+            return render_template('search_bookings.html')
+
+    # --- לוגיקה למשתמש רשום (Registered User) ---
+    user_email = session.get('email')
+    if user_email:
+        # כאן נשארנו עם הלוגיקה המקורית שעובדת עבור משתמש רשום
+        conf, comp, c_you, c_sys = Booking.get_user_bookings(user_email)
+        return render_template('bookings_results.html',
+                               confirmed=conf, completed=comp,
+                               cancelled_by_you=c_you, cancelled_by_system=c_sys,
+                               is_guest=False, now=now)
 
     return render_template('search_bookings.html')
 
-# -----------------
-# Cancel Booking (New)
-# -----------------
-@app.route('/cancel-booking', methods=['POST'])
+
+@app.route("/cancel-booking", methods=["POST"])
 def cancel_booking():
-    booking_id = request.form.get('booking_id')
-    
-    # שימוש בפונקציה החדשה ב-DB
-    success, message = cancel_booking_in_db(booking_id)
-    
-    flash(message)
+    """ביטול הזמנה ע"י לקוח - הגרסה החדשה והנקייה"""
+    booking_id = request.form.get('id_booking')
+
+    # בדיקת קלט בסיסית
+    if not booking_id:
+        flash("Invalid request.", "error")
+        return redirect(url_for('view_bookings'))
+
+    # הקסם קורה כאן: שורה אחת במקום כל הלוגיקה וה-SQL שהיו פה
+    success, message = Booking.cancel_by_customer(booking_id)
+
+    # הצגת ההודעה למשתמש (הודעת ההצלחה או הכישלון מגיעה מהמודל)
+    flash(message, "success" if success else "error")
+
     return redirect(url_for('view_bookings'))
 
-if __name__ == "__main__":
-    app.run(debug=True) # תריץ רק אפליקציה אחת
+
+@app.route('/manager-login', methods=['GET', 'POST'])
+def manager_login_page():
+    if request.method == 'POST':
+        manager = Manager.login(request.form.get('id_worker'), request.form.get('password'))
+        if manager:
+            session['user_id'] = manager.id_worker
+            session['first_name'] = manager.first_name
+            session['role'] = 'manager'
+            return redirect(url_for('manager_dashboard'))
+        flash("Access Denied: Invalid Credentials", "danger")
+    return render_template('manager_login.html')
 
 
-#-----------------
-#select_seats
-#-----------------
-@app.route("/select-seats", methods=["GET"])
-def select_seats_page():
+@app.route('/manager/dashboard')
+def manager_dashboard():
+    # בדיקת הרשאות (נשאר אותו דבר)
+    if session.get('role') != 'manager':
+        return redirect(url_for('manager_login_page'))
 
-    flight_id = request.args.get("flight_id", type=int)
+    # הקסם החדש: שורה אחת שמביאה את הכל מוכן מהמודל!
+    # אין יותר לולאות, אין חישובי זמנים ואין שרשור מחרוזות ב-Main
+    flights, routes = Manager.get_dashboard_data()
+
+    return render_template('manager_dashboard.html', flights=flights, form_data={'routes': routes})
+
+@app.route("/api/check_availability", methods=['POST'])
+def check_availability_api():
+    """API עבור ה-Wizard ליצירת טיסה"""
+    if session.get("role") != "manager":
+        return jsonify({"can_proceed": False, "error_msg": "Unauthorized"}), 403
+
+    data = request.get_json()
+    if not data or not data.get('route_id') or not data.get('dept_time'):
+        return jsonify({"can_proceed": False, "error_msg": "Missing data"}), 400
+
+    # הפעלת הלוגיקה דרך המודל
+    response = Manager.validate_resources(data['dept_time'], data['route_id'])
+
+    if not response:
+        return jsonify({"can_proceed": False, "error_msg": "שגיאה בחישוב משאבים"}), 200
+
+    return jsonify(response)
+
+
+@app.route("/manager/cancel_flight", methods=["POST"])
+def manager_cancel_flight_route():
+    """ביטול טיסה ע"י מנהל"""
+    if session.get("role") != "manager":
+        flash("Unauthorized access.", "error")
+        return redirect(url_for("manager_login_page"))
+
+    flight_id = request.form.get("flight_id")
     if not flight_id:
-        return redirect("/")
+        flash("Missing flight ID.", "error")
+        return redirect(url_for("manager_dashboard"))
 
-    flight = chosen_flight_details(flight_id)
-    if not flight:
-        return redirect("/")
+    # הפעלת הלוגיקה ב-Model (שקוראת ל-manager_cancel_flight_full_logic ב-DB)
+    success, message = Manager.cancel_flight(flight_id)
 
-    flight = prepare_flights_for_view([flight])[0]
-
-    plane = plane_object(flight_id)
-    if plane is None:
-        return redirect("/")
-
-    occupied_tickets = get_occupied_seats(flight_id)
-    occupied_map = occupied_seats(occupied_tickets)
-
-    col_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-    seats_prices = get_flight_prices(flight_id)
-
-    formatted_prices = {k: format_price(v) for k, v in seats_prices.items()}
-
-    return render_template("select_seats.html", plane=plane,occupied=occupied_map, flight=flight,
-                           col_letters=col_letters, prices=formatted_prices)
+    flash(message, "success" if success else "error")
+    return redirect(url_for("manager_dashboard"))
 
 
-#-----------------
-#process_booking
-#-----------------
-@app.route("/process-booking", methods=["POST"])
-def process_booking():
-    # 1. קבלת הנתונים מהטופס
-    flight_id = request.form.get("flight_id", type=int)
-    selected_seats = request.form.getlist("seats")  # רשימה: ['Business-1-A', ...]
+@app.route("/manager/add_flight", methods=['POST'])
+def add_flight():
+    if session.get("role") != "manager":
+        return redirect(url_for('manager_login_page'))
 
-    if not selected_seats:
-        flash("Please select at least one seat.")
-        return redirect(url_for('select_seats_page', flight_id=flight_id))
+    manager_id = session.get('user_id')
 
-    # 2. שליפת המצב העדכני ביותר מהדאטה-בייס (שאילתה חדשה)
-    # זו הפונקציה שכבר קיימת לך ב-DB.py
-    latest_occupied_data = get_occupied_seats(flight_id)
+    route_id = request.form.get('id_route')
+    plane_id = request.form.get('id_plane')
+    dept_time = request.form.get('departure_time')
+    pilots = request.form.getlist('pilots')
+    attendants = request.form.getlist('attendants')
 
-    # 3. בדיקת זמינות באמצעות הפונקציה ב-utils
-    conflicts = validate_seat_selection(selected_seats, latest_occupied_data)
+    # --- השינוי: קליטת המחירים מהטופס ---
+    price_economy = request.form.get('price_economy')
+    price_business = request.form.get('price_business')  # יכול להיות ריק אם המטוס קטן
 
-    # 4. טיפול בתוצאה
-    if conflicts:
-        # אם יש התנגשויות - מחזירים אחורה עם שגיאה
-        conflict_msg = ", ".join(conflicts)
-        flash(f"Oops! The following seats were just taken: {conflict_msg}. Please choose different seats.")
-        return redirect(url_for('select_seats_page', flight_id=flight_id))
+    # העברת המחירים למודל
+    success, msg = Manager.create_flight(
+        route_id, plane_id, dept_time, pilots, attendants, manager_id,
+        price_economy, price_business
+    )
 
+    if success:
+        flash("Flight created successfully!", "success")
     else:
-        # הכל פנוי!
-        # שומרים ב-Session בלבד (עדיין לא בדאטה בייס)
-        session['current_booking'] = {
-            'flight_id': flight_id,
-            'seats': selected_seats}
-        # מעבירים לעמוד הבא (פרטי כרטיסים/תשלום)
-        return redirect(url_for('tickets_details_page'))
+        flash(f"Error creating flight: {msg}", "error")
 
+    return redirect(url_for('manager_dashboard'))
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('home_page'))
+
+if __name__ == '__main__':
+    app.run(debug=True)
