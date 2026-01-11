@@ -227,3 +227,74 @@ def cancel_booking():
 
 if __name__ == "__main__":
     app.run(debug=True) # תריץ רק אפליקציה אחת
+
+
+#-----------------
+#select_seats
+#-----------------
+@app.route("/select-seats", methods=["GET"])
+def select_seats_page():
+
+    flight_id = request.args.get("flight_id", type=int)
+    if not flight_id:
+        return redirect("/")
+
+    flight = chosen_flight_details(flight_id)
+    if not flight:
+        return redirect("/")
+
+    flight = prepare_flights_for_view([flight])[0]
+
+    plane = plane_object(flight_id)
+    if plane is None:
+        return redirect("/")
+
+    occupied_tickets = get_occupied_seats(flight_id)
+    occupied_map = occupied_seats(occupied_tickets)
+
+    col_letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+    seats_prices = get_flight_prices(flight_id)
+
+    formatted_prices = {k: format_price(v) for k, v in seats_prices.items()}
+
+    return render_template("select_seats.html", plane=plane,occupied=occupied_map, flight=flight,
+                           col_letters=col_letters, prices=formatted_prices)
+
+
+#-----------------
+#process_booking
+#-----------------
+@app.route("/process-booking", methods=["POST"])
+def process_booking():
+    # 1. קבלת הנתונים מהטופס
+    flight_id = request.form.get("flight_id", type=int)
+    selected_seats = request.form.getlist("seats")  # רשימה: ['Business-1-A', ...]
+
+    if not selected_seats:
+        flash("Please select at least one seat.")
+        return redirect(url_for('select_seats_page', flight_id=flight_id))
+
+    # 2. שליפת המצב העדכני ביותר מהדאטה-בייס (שאילתה חדשה)
+    # זו הפונקציה שכבר קיימת לך ב-DB.py
+    latest_occupied_data = get_occupied_seats(flight_id)
+
+    # 3. בדיקת זמינות באמצעות הפונקציה ב-utils
+    conflicts = validate_seat_selection(selected_seats, latest_occupied_data)
+
+    # 4. טיפול בתוצאה
+    if conflicts:
+        # אם יש התנגשויות - מחזירים אחורה עם שגיאה
+        conflict_msg = ", ".join(conflicts)
+        flash(f"Oops! The following seats were just taken: {conflict_msg}. Please choose different seats.")
+        return redirect(url_for('select_seats_page', flight_id=flight_id))
+
+    else:
+        # הכל פנוי!
+        # שומרים ב-Session בלבד (עדיין לא בדאטה בייס)
+        session['current_booking'] = {
+            'flight_id': flight_id,
+            'seats': selected_seats}
+        # מעבירים לעמוד הבא (פרטי כרטיסים/תשלום)
+        return redirect(url_for('tickets_details_page'))
+
