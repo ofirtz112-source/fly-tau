@@ -2,7 +2,7 @@ from datetime import timedelta
 from abc import ABC, abstractmethod
 
 class worker(abc):
-    class Manager:
+    class Manager(worker):
         def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, password, phone_number):
             self.id_worker = id_worker
             self.first_name = first_name
@@ -21,7 +21,7 @@ class worker(abc):
         def __repr__(self):
             return f"<Manager {self.first_name} {self.last_name} ({self.id_worker})>"
 
-    class pilots:
+    class pilots(worker):
         def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, phone_number, long_flights):
             self.id_worker = id_worker
             self.first_name = first_name
@@ -33,7 +33,7 @@ class worker(abc):
             self.phone_number = phone_number
             self.long_flights = long_flights
 
-    class flight_attendants:
+    class flight_attendants(worker):
         def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, phone_number, long_flights):
             self.id_worker = id_worker
             self.first_name = first_name
