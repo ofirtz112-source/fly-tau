@@ -1,150 +1,310 @@
-from datetime import timedelta
-from abc import ABC, abstractmethod
+from database import Database
+from datetime import datetime, timedelta
+from utils import prepare_flights_for_view, _format_datetime
 
-class worker(ABC):
-    pass
+# יצירת מופע של הדאטה-בייס (Singleton)
+db = Database()
 
-class Manager(worker):
-    def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, password, phone_number):
-        self.id_worker = id_worker
+
+class User:
+    """מחלקת אב למשתמשים"""
+
+    def __init__(self, user_id, first_name):
+        self.user_id = user_id
         self.first_name = first_name
-        self.last_name = last_name
-        self.start_date = start_date
-        self.city = city
-        self.street = street
-        self.house_number = house_number
-        self.password = password
-        self.phone_number = phone_number
-
-    # אכיפת הכלל: מנהל לא יכול להזמין כרטיס לעצמו
-    def book_ticket(self):
-        raise PermissionError("Managers are strictily prohibited from booking tickets for themselves due to company policy.")
 
     def __repr__(self):
-        return f"<Manager {self.first_name} {self.last_name} ({self.id_worker})>"
+        return f"<{self.__class__.__name__}: {self.first_name}>"
 
-class pilots(worker):
-    def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, phone_number, long_flights):
+
+class Manager(User):
+    def __init__(self, id_worker, first_name):
+        super().__init__(user_id=id_worker, first_name=first_name)
         self.id_worker = id_worker
-        self.first_name = first_name
-        self.last_name = last_name
-        self.start_date = start_date
-        self.city = city
-        self.street = street
-        self.house_number = house_number
-        self.phone_number = phone_number
-        self.long_flights = long_flights
 
-class flight_attendants(worker):
-    def __init__(self, id_worker, first_name, last_name, start_date, city, street, house_number, phone_number, long_flights):
-        self.id_worker = id_worker
-        self.first_name = first_name
-        self.last_name = last_name
-        self.start_date = start_date
-        self.city = city
-        self.street = street
-        self.house_number = house_number
-        self.phone_number = phone_number
-        self.long_flights = long_flights
+    @staticmethod
+    def login(id_worker, password):
+        manager_data = db.manager_login(id_worker, password)
+        if manager_data:
+            return Manager(id_worker=manager_data['id_worker'], first_name=manager_data['first_name'])
+        return None
 
-class Plane:
-    def __init__(self, id_plane, manufacturer, purchase_date):
-        self.id_plane = id_plane
-        self.manufacturer = manufacturer
-        self.purchase_date = purchase_date
-        self.dimensions = {"Business": None, "Economy": None}
+    @staticmethod
+    def cancel_flight(flight_id):
+        """הפעלה של לוגיקת הביטול המלאה ב-DB (כולל 72 שעות)"""
+        return db.cancel_flight_full_logic(flight_id)
 
-    def get_dimensions(self):
-        return self.dimensions
+    @staticmethod
+    def validate_resources(dept_time, route_id):
+        """לוגיקת ה-Wizard: סינון משאבים ובדיקת סף מינימלי להקמת טיסה"""
+        result = db.get_available_resources(dept_time, route_id)
+        if not result:
+            return None
 
-    def has_class(self, class_type: str) -> bool:
-        return self.dimensions.get(class_type) is not None
+        # סינון משאבים זמינים בלבד
+        v_planes = [p for p in result.get('planes', []) if p.get('is_valid')]
+        v_pilots = [p for p in result.get('pilots', []) if p.get('is_valid')]
+        v_attendants = [a for a in result.get('attendants', []) if a.get('is_valid')]
 
-    def rows_cols(self, class_type:str):
-        d = self.dimensions.get(class_type)
-        if not d:
-            return 0, 0
-        return int(d["rows"]), int(d["cols"])
+        # --- לוגיקה מעודכנת לפי דרישות: 3/6 לארוכה, 2/3 לקצרה ---
 
-    def __repr__(self):
-        return f"<Plane {self.id_plane} >"
+        is_long = result.get('is_long_haul', False)
 
-class SmallPlane(Plane):
-    def __init__(self, id_plane, manufacturer, purchase_date, eco_rows, eco_cols):
-        super().__init__(id_plane, manufacturer, purchase_date)
-        self.dimensions["Economy"] = {"rows":int(eco_rows), "cols":int(eco_cols)}
-        self.dimensions["Business"] = None
+        # קביעת המינימום הנדרש
+        min_pilots = 3 if is_long else 2
+        min_attendants = 6 if is_long else 3
 
+        # בדיקת כמויות בפועל
+        has_plane = len(v_planes) > 0
+        has_pilots = len(v_pilots) >= min_pilots
+        has_attendants = len(v_attendants) >= min_attendants
 
-class BigPlane(Plane):
-    def __init__(self, id_plane, manufacturer, purchase_date, eco_rows, eco_cols, bus_rows, bus_cols):
-        super().__init__(id_plane, manufacturer, purchase_date)
-        self.dimensions["Economy"] = {"rows": int(eco_rows), "cols": int(eco_cols)}
-        self.dimensions["Business"] = {"rows": int(bus_rows), "cols": int(bus_cols)}
+        can_proceed = has_plane and has_pilots and has_attendants
 
+        error_msg = ""
+        if not can_proceed:
+            if not has_plane:
+                error_msg = "אין מטוסים פנויים (או שהמטוס קטן מדי לטיסה ארוכה)."
+            elif not has_pilots:
+                error_msg = f"חוסר בטייסים. נדרשים {min_pilots}, נמצאו פנויים: {len(v_pilots)}."
+            else:
+                error_msg = f"חוסר בדיילים. נדרשים {min_attendants}, נמצאו פנויים: {len(v_attendants)}."
+
+        return {
+            "can_proceed": can_proceed,
+            "error_msg": error_msg,
+            "planes": result.get('planes', []),
+            "pilots": result.get('pilots', []),
+            "attendants": result.get('attendants', []),
+            "is_long_haul": is_long,
+            "arrival_time": result.get('arrival_time', "N/A")
+        }
+
+    @staticmethod
+    def get_dashboard_data():
+        """מכין את כל הנתונים לדאשבורד: מעבד טיסות, צוותים, ולוגיקת ביטול"""
+        # 1. שליפת טיסות גולמיות
+        flights = db.get_all_flights_for_manager()
+        now = datetime.now()
+
+        # 2. עיבוד כל טיסה (הלולאה שהייתה ב-main עוברת לפה)
+        for f in flights:
+            # --- השינוי החדש: עיצוב התאריך ---
+            # משתמשים בפונקציה מ-utils כדי ליצור תאריך יפה (למשל: 12 Jan 2026, 14:00)
+            f['formatted_date'] = _format_datetime(f['departure_time'])
+
+            # שליפת שמות צוות וחיבור למחרוזת
+            crew = db.get_flight_crew_names(f['id_flight'])
+            f['pilots_list'] = ", ".join(crew['pilots'])
+            f['attendants_list'] = ", ".join(crew['attendants'])
+
+            # לוגיקת ביטול (72 שעות)
+            # בודקים אם הסטטוס הוא 'Scheduled' וגם נשאר מספיק זמן
+            time_diff = f['departure_time'] - now
+            # 72 שעות * 3600 שניות לשעה
+            f['can_cancel'] = (f['flight_status'] == 'Scheduled' and
+                               time_diff.total_seconds() > 72 * 3600)
+
+        # 3. שליפת נתיבים (עבור טופס הוספת טיסה)
+        routes = db.get_routes_only()
+
+        return flights, routes
+
+    @staticmethod
+    def create_flight(route_id, plane_id, departure_time, pilots_list, attendants_list,
+                      manager_id, price_economy, price_business):  # <--- הוספנו פרמטרים
+        # מעבירים הלאה ל-DB
+        return db.add_new_flight(
+            route_id, plane_id, departure_time, pilots_list, attendants_list, manager_id,
+            price_economy, price_business
+        )
+
+class Customer(User):
+    """מחלקת לקוח - יורשת מ-User"""
+
+    def __init__(self, email, first_name):
+        super().__init__(user_id=email, first_name=first_name)
+        self.email = email
+
+    @staticmethod
+    def login(email, password):
+        user_data = db.user_login(email, password)
+        if user_data:
+            return Customer(email=user_data['email'], first_name=user_data['first_name_eng'])
+        return None
+
+    @staticmethod
+    def register(email, first_name, last_name, birth_date, passport, password, phone_numbers):
+        if db.email_exists(email):
+            return False, "Email already registered."
+        if db.passport_exists(passport):
+            return False, "Passport number already exists."
+        try:
+            db.create_account(email, first_name, last_name, birth_date, passport, password, phone_numbers)
+            return True, "Success"
+        except Exception as e:
+            return False, str(e)
 
 
 class Flight:
-    def __init__(self, id_flight, departure_time, flight_status, id_route, id_plane, manager_id, duration_obj):
-        self.id_flight = id_flight
-        self.departure_time = departure_time
-        self.flight_status = flight_status
-        self.id_route = id_route
-        self.id_plane = id_plane  # זה אובייקט Plane או רק ID, תלוי איך שולפים
-        self.manager_id = manager_id
+    """מחלקת טיסה"""
 
-        # חישוב אורך הטיסה והאם היא ארוכה
-        self.duration = duration_obj  # מצפה לאובייקט timedelta
-        self.is_long_flight = self.check_is_long()
+    def __init__(self, flight_id):
+        data = db.get_flight_data(flight_id=flight_id)
+        if data:
+            flight_info = data[0] if isinstance(data, list) else data
+            self.id = flight_info['id_flight']
+            self.departure_time = flight_info['departure_time']
+            self.origin = flight_info['origin_city']
+            self.destination = flight_info['destination_city']
+            self._plane_info = None
+        else:
+            raise ValueError(f"Flight ID {flight_id} not found.")
 
-        # רשימות שימולאו בהמשך על ידי שאילתות
-        self.pilots = []
-        self.flight_attendants = []
+    @staticmethod
+    def search(date, origin, destination):
+        raw_flights = db.get_flight_data(date_str=date, origin=origin, destination=destination)
+        return prepare_flights_for_view(raw_flights)
 
-    def check_is_long(self):
-        # טיסה ארוכה מוגדרת כמעל 6 שעות
-        if isinstance(self.duration, timedelta):
-            return self.duration.total_seconds() / 3600 > 6
-        return False
 
-    def validate_plane_assignment(self, plane_obj):
-        """
-        בדיקת התאמת מטוס לטיסה:
-        מטוס קטן - רק טיסות קצרות.
-        מטוס גדול - גם וגם.
-        """
-        if plane_obj.size == 'Small' and self.is_long_flight:
-            return False, "Small planes cannot operate long flights (> 6 hours)."
-        return True, "OK"
+class Booking:
+    @staticmethod
+    def get_user_bookings(email):
+        """שליפת הזמנות ללקוח רשום וחלוקה ל-4 רשימות לפי הסטטוסים ב-DB וזמן ההמראה"""
+        raw_data = db.get_customer_bookings(email)
+        bookings_dict = {}
 
-    def validate_crew_assignment(self):
-        """
-        בדיקת תקינות צוות לפי חוקי החברה:
-        1. כמויות (3 טייסים ו-6 דיילים לגדול, 2 ו-3 לקטן).
-        2. הכשרות (בטיסה ארוכה חובה שכולם יהיו מוכשרים לטיסות ארוכות).
-        """
-        # נניח ש-self.id_plane הוא אובייקט של Plane (או שנשלוף אותו)
-        # לצורך הדוגמה נניח שיש לנו את הגודל:
-        plane_size = self.id_plane.size
+        for row in raw_data:
+            bid = row['id_booking']
+            if bid not in bookings_dict:
+                bookings_dict[bid] = {
+                    'info': {
+                        'id_booking': bid,
+                        'booking_status': row['booking_status'],
+                        'departure_time': row['departure_time'],
+                        'origin': row['origin_city'],
+                        'destination': row['destination_city'],
+                        'total_price': row['total_price']
+                    },
+                    'tickets': []
+                }
+            bookings_dict[bid]['tickets'].append({
+                'name': row['passenger_name'],
+                'seat': f"{row['row_number']}{row['seat_letter']}",
+                'class': row['class_type']
+            })
 
-        # בדיקת כמויות
-        num_pilots = len(self.pilots)
-        num_attendants = len(self.flight_attendants)
+        now = datetime.now()
+        confirmed, completed, cancelled_you, cancelled_sys = [], [], [], []
 
-        if plane_size == 'Big':
-            if num_pilots != 3 or num_attendants != 6:
-                return False, f"Big plane requires 3 pilots and 6 attendants. (Current: {num_pilots}, {num_attendants})"
-        elif plane_size == 'Small':
-            if num_pilots != 2 or num_attendants != 3:
-                return False, f"Small plane requires 2 pilots and 3 attendants. (Current: {num_pilots}, {num_attendants})"
+        for b in bookings_dict.values():
+            status = b['info']['booking_status']
+            dep_time = b['info']['departure_time']
 
-        # בדיקת הכשרה לטיסות ארוכות (long_flights = 1)
-        if self.is_long_flight:
-            for p in self.pilots:
-                if not p.get('long_flights'):  # הנחה שזה dict או אובייקט עם תכונה
-                    return False, f"Pilot {p['id_worker']} is not qualified for long flights."
-            for fa in self.flight_attendants:
-                if not fa.get('long_flights'):
-                    return False, f"Attendant {fa['id_worker']} is not qualified for long flights."
+            # לוגיקה לעדכון סטטוס וירטואלי לפי זמן
+            if status == 'Confirmed':
+                if dep_time > now:
+                    confirmed.append(b)
+                else:
+                    completed.append(b)  # טיסה עברה - עוברת ל-Completed
+            elif status == 'Completed':
+                completed.append(b)
+            elif status == 'Cancelled_Client':
+                cancelled_you.append(b)
+            elif status == 'Cancelled_System':
+                cancelled_sys.append(b)
 
-        return True, "Crew is valid."
+        return confirmed, completed, cancelled_you, cancelled_sys
+
+    @staticmethod
+    def get_specific_booking(email, booking_id):
+        """שליפת הזמנה בודדת עבור אורחים"""
+        raw_data = db.get_single_booking(email, booking_id)
+        if not raw_data:
+            return None
+
+        booking = {
+            'info': {
+                'id_booking': raw_data[0]['id_booking'],
+                'booking_status': raw_data[0]['booking_status'],
+                'departure_time': raw_data[0]['departure_time'],
+                'origin': raw_data[0]['origin_city'],
+                'destination': raw_data[0]['destination_city'],
+                'total_price': raw_data[0]['total_price']
+            },
+            'tickets': []
+        }
+        for row in raw_data:
+            booking['tickets'].append({
+                'name': row['passenger_name'],
+                'seat': f"{row['row_number']}{row['seat_letter']}",
+                'class': row['class_type']
+            })
+        return booking
+
+
+    @staticmethod
+    def organize_bookings(bookings_list):
+        """פונקציית עזר למיון הזמנות לפי סטטוסים - מונעת כפילות קוד"""
+        confirmed, completed, cancelled_you, cancelled_sys = [], [], [], []
+        now = datetime.now()
+
+        for b in bookings_list:
+            # תמיכה במבנה נתונים: לפעמים המידע בתוך מילון 'info' ולפעמים שטוח
+            # הפתרון הזה מבטיח שהקוד יעבוד גם עבור רשימת לקוח וגם עבור הזמנת אורח
+            info = b.get('info', b)
+
+            status = info.get('booking_status')
+            dep_time = info.get('departure_time')
+
+            # וידוא שזמן ההמראה הוא אובייקט תאריך אמיתי (לפעמים מגיע כמחרוזת)
+            if isinstance(dep_time, str):
+                try:
+                    dep_time = datetime.strptime(dep_time, '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    pass
+
+                    # הלוגיקה המרכזית: מיון למגירות
+            if status == 'Confirmed':
+                if dep_time and dep_time > now:
+                    confirmed.append(b)
+                else:
+                    completed.append(b)  # טיסה שאושרה אך זמנה עבר -> הושלמה
+            elif status == 'Completed':
+                completed.append(b)
+            elif status == 'Cancelled_Client':
+                cancelled_you.append(b)
+            elif status == 'Cancelled_System':
+                cancelled_sys.append(b)
+
+        return confirmed, completed, cancelled_you, cancelled_sys
+
+    @staticmethod
+    def cancel_by_customer(booking_id):
+        """ביצוע ביטול ע"י לקוח: בדיקת 36 שעות וחישוב קנס"""
+        # 1. שליפת פרטים מה-DB
+        flight_data = db.get_booking_details_for_cancellation(booking_id)
+
+        if not flight_data:
+            return False, "Booking not found."
+
+        if 'Cancelled' in flight_data['status']:
+            return False, "This booking is already cancelled."
+
+        # 2. בדיקת זמנים (36 שעות)
+        flight_time = flight_data['departure_time']
+        time_diff = flight_time - datetime.now()
+
+        if time_diff < timedelta(hours=36):
+            return False, "Too late to cancel (under 36 hours before departure)."
+
+        # 3. חישוב קנס (5%)
+        original_price = float(flight_data['total_price'])
+        fee = original_price * 0.05
+
+        # 4. ביצוע העדכון
+        success = db.update_booking_status(booking_id, 'Cancelled_Client', fee)
+
+        if success:
+            return True, f"Booking cancelled. A 5% fee (${fee:.2f}) was charged."
+        return False, "Database update failed."
