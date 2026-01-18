@@ -11,8 +11,8 @@ class Database:
                 cls._instance.connection = mysql.connector.connect(
                     host="localhost",
                     user="root",
-                    password="Vika2000!",
-                    database="flytauchecking",
+                    password="root",
+                    database="flytau",
                     port=3306
                 )
                 print("✅ Connected to 'flytau' database (Singleton)")
@@ -107,7 +107,7 @@ class Database:
 
     def email_exists(self, email):
         cursor = self.connection.cursor()
-        cursor.execute("SELECT email FROM customers WHERE email = %s", (email,))
+        cursor.execute("SELECT customers_email FROM registered_customers WHERE customers_email = %s", (email,))
         exists = cursor.fetchone() is not None
         cursor.close()
         return exists
@@ -121,71 +121,148 @@ class Database:
         return exists
 
     def create_account(self, email, first_name, last_name, birth_date, passport, password, phone_numbers):
-        print("--- RUNNING NEW CREATE ACCOUNT FUNCTION ---")  # <--- תוסיפי את זה לבדיקה
         cursor = self.connection.cursor()
         try:
-            # --- שלב 1: ניסיון ליצור לקוח בסיסי ---
-            # אם הלקוח חדש לגמרי - זה יעבוד.
-            # אם הלקוח היה אורח בעבר - זה יזרוק שגיאה כי האימייל תפוס.
-            cursor.execute("""
-                INSERT INTO customers (email, first_name_eng, last_name_eng)
-                VALUES (%s, %s, %s)
-            """, (email, first_name, last_name))
+            try:
+                # 1. יצירת לקוח בסיסי
+                cursor.execute("""
+                               INSERT INTO customers (email, first_name_eng, last_name_eng)
+                               VALUES (%s, %s, %s)
+                               """, (email, first_name, last_name))
 
-            # --- שלב 2: יצירת החשבון הרשום (הפרטים החסויים) ---
-            # תיקון: שימוש ב-passport במקום passport_number
-            cursor.execute("""
-                INSERT INTO registered_customers (customers_email, password, birth_date, passport, registration_date)
-                VALUES (%s, %s, %s, %s, CURDATE())
-            """, (email, password, birth_date, passport))
+            except mysql.connector.Error as err:
+                if err.errno == 1062:  # Duplicate entry
+                    # בדיקה אם הוא כבר רשום כחבר מועדון
+                    cursor.execute("SELECT customers_email FROM registered_customers WHERE customers_email = %s",
+                                   (email,))
+                    if cursor.fetchone():
+                        raise Exception("Email already registered.")
+                    else:
+                        # שדרוג אורח למשתמש רשום
+                        cursor.execute("""
+                                       UPDATE customers
+                                       SET first_name_eng = %s,
+                                           last_name_eng  = %s
+                                       WHERE email = %s
+                                       """, (first_name, last_name, email))
+                else:
+                    raise err
 
-            # --- שלב 3: טלפונים ---
+            # 2. הוספת פרטי התחברות
+            cursor.execute("""
+                           INSERT INTO registered_customers (customers_email, password, birth_date, passport, registration_date)
+                           VALUES (%s, %s, %s, %s, CURDATE())
+                           """, (email, password, birth_date, passport))
+
+            # 3. הוספת טלפונים
             for phone in phone_numbers:
-                if phone.strip():
+                if phone and str(phone).strip():
                     cursor.execute("""
-                        INSERT INTO phone_numbers (phone_number, customers_email)
-                        VALUES (%s, %s)
-                    """, (phone, email))
+                                   INSERT INTO phone_numbers (phone_number, customers_email)
+                                   VALUES (%s, %s)
+                                   """, (phone, email))
 
             self.connection.commit()
+            return True, "Registration successful"
 
         except Exception as e:
             self.connection.rollback()
+            error_msg = str(e)
+            if "Duplicate entry" in error_msg and "passport" in error_msg:
+                return False, "This passport number is already registered."
+            return False, f"Registration failed: {error_msg}"
 
-            # --- הטיפול במקרה של אורח לשעבר ---
-            if "Duplicate entry" in str(e) and "customers.PRIMARY" in str(e):
-                try:
-                    print(f"User {email} already exists inside 'customers', upgrading to registered...")
-
-                    # 1. עדכון שמות למקרה שהשתנו
-                    cursor.execute("""
-                        UPDATE customers SET first_name_eng=%s, last_name_eng=%s WHERE email=%s
-                    """, (first_name, last_name, email))
-
-                    # 2. הוספה לטבלת הרשומים בלבד
-                    cursor.execute("""
-                        INSERT INTO registered_customers (customers_email, password, birth_date, passport, registration_date)
-                        VALUES (%s, %s, %s, %s, CURDATE())
-                    """, (email, password, birth_date, passport))
-
-                    # 3. הוספת טלפונים (עם IGNORE למקרה שכבר קיימים)
-                    for phone in phone_numbers:
-                        if phone.strip():
-                            cursor.execute("""
-                                INSERT IGNORE INTO phone_numbers (phone_number, customers_email)
-                                VALUES (%s, %s)
-                            """, (phone, email))
-
-                    self.connection.commit()
-                    return  # הצלחה!
-
-                except Exception as inner_e:
-                    self.connection.rollback()
-                    raise inner_e
-            else:
-                raise e
         finally:
             cursor.close()
+    # def create_account(self, email, first_name, last_name, birth_date, passport, password, phone_numbers):
+    #     cursor = self.connection.cursor()
+    #     try:
+    #         try:
+    #             # --- שלב 1: ניסיון ליצור לקוח בסיסי ---
+    #             # אם הלקוח חדש לגמרי - זה יעבוד.
+    #             # אם הלקוח היה אורח בעבר - זה יזרוק שגיאה כי האימייל תפוס.
+    #             cursor.execute("""
+    #                 INSERT INTO customers (email, first_name_eng, last_name_eng)
+    #                 VALUES (%s, %s, %s)
+    #             """, (email, first_name, last_name))
+    #
+    #         except mysql.connector.Error as err:
+    #             # שגיאה 1062 אומרת "Duplicate entry" (המייל כבר קיים)
+    #             if err.errno == 1062:
+    #                 # בודקים: האם הוא כבר רשום כמשתמש רשום?
+    #                 cursor.execute("SELECT customers_email FROM registered_customers WHERE customers_email = %s",
+    #                                (email,))
+    #                 if cursor.fetchone():
+    #                     # המייל קיים גם בטבלת הרשומים - זו כפילות אמיתית!
+    #                     raise Exception("Email already registered.")
+    #                 else:
+    #                     # המייל קיים רק בלקוחות (אורח) -> זה שדרוג!
+    #                     # נעדכן את השם שלו ליתר ביטחון (אולי תיקן שגיאת כתיב מהפעם הקודמת)
+    #                     cursor.execute("""
+    #                                    UPDATE customers
+    #                                    SET first_name_eng = %s,
+    #                                        last_name_eng  = %s
+    #                                    WHERE email = %s
+    #                                    """, (first_name, last_name, email))
+    #                     print(f"--- Upgrading Guest {email} to Registered User ---")
+    #             else:
+    #                 # אם זו שגיאה אחרת, נזרוק אותה החוצה
+    #                 raise err
+    #
+    #             # --- שלב 2: יצירת החשבון הרשום (הפרטים החסויים) ---
+    #             # תיקון: שימוש ב-passport במקום passport_number
+    #             cursor.execute("""
+    #                 INSERT INTO registered_customers (customers_email, password, birth_date, passport, registration_date)
+    #                 VALUES (%s, %s, %s, %s, CURDATE())
+    #             """, (email, password, birth_date, passport))
+    #
+    #             # --- שלב 3: טלפונים ---
+    #             for phone in phone_numbers:
+    #                 if phone.strip():
+    #                     cursor.execute("""
+    #                         INSERT INTO phone_numbers (phone_number, customers_email)
+    #                         VALUES (%s, %s)
+    #                     """, (phone, email))
+    #
+    #             self.connection.commit()
+    #
+    #     except Exception as e:
+    #         self.connection.rollback()
+    #
+    #         # --- הטיפול במקרה של אורח לשעבר ---
+    #         if "Duplicate entry" in str(e) and "customers.PRIMARY" in str(e):
+    #             try:
+    #                 print(f"User {email} already exists inside 'customers', upgrading to registered...")
+    #
+    #                 # 1. עדכון שמות למקרה שהשתנו
+    #                 cursor.execute("""
+    #                     UPDATE customers SET first_name_eng=%s, last_name_eng=%s WHERE email=%s
+    #                 """, (first_name, last_name, email))
+    #
+    #                 # 2. הוספה לטבלת הרשומים בלבד
+    #                 cursor.execute("""
+    #                     INSERT INTO registered_customers (customers_email, password, birth_date, passport, registration_date)
+    #                     VALUES (%s, %s, %s, %s, CURDATE())
+    #                 """, (email, password, birth_date, passport))
+    #
+    #                 # 3. הוספת טלפונים (עם IGNORE למקרה שכבר קיימים)
+    #                 for phone in phone_numbers:
+    #                     if phone.strip():
+    #                         cursor.execute("""
+    #                             INSERT IGNORE INTO phone_numbers (phone_number, customers_email)
+    #                             VALUES (%s, %s)
+    #                         """, (phone, email))
+    #
+    #                 self.connection.commit()
+    #                 return  # הצלחה!
+    #
+    #             except Exception as inner_e:
+    #                 self.connection.rollback()
+    #                 raise inner_e
+    #         else:
+    #             raise e
+    #     finally:
+    #         cursor.close()
 
     # --- פונקציות חיפוש טיסות ---
 
@@ -619,5 +696,349 @@ class Database:
         except Exception as e:
             print(f"Error in get_nearest_flight_date: {e}")
             return None
+        finally:
+            cursor.close()
+
+    def get_plane_details_for_seatmap(self, flight_id):
+        """שליפת פרטי המטוס והגודל שלו לפי טיסה"""
+        query = """
+                SELECT p.id_plane, p.manufacturer, p.size, p.purchase_date
+                FROM flights f
+                         JOIN planes p on p.id_plane = f.id_plane
+                WHERE f.id_flight = %s \
+                """
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query, (flight_id,))
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+
+    def get_class_dimensions(self, plane_id):
+        """שליפת מספר השורות והטורים לכל מחלקה במטוס"""
+        query = "SELECT class_type, num_rows, num_cols FROM classes WHERE id_plane = %s"
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query, (plane_id,))
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+
+    def get_flight_prices(self, flight_id):
+        """שליפת מחירון הטיסה"""
+        query = ("SELECT class_type, price "
+                 "FROM flight_pricing "
+                 "WHERE id_flight = %s")
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query, (flight_id,))
+            res = cursor.fetchall()
+            # מחזיר מילון: {'Economy': 100.0, 'Business': 250.0}
+            return {row['class_type']: float(row['price']) for row in res}
+        finally:
+            cursor.close()
+
+    def get_occupied_seats(self, flight_id):
+        """שליפת המושבים התפוסים בלבד"""
+        query = """
+                SELECT t.class_type, t.row_number, t.seat_letter
+                FROM tickets t
+                         JOIN bookings b ON b.id_booking = t.id_booking
+                WHERE t.id_flight = %s \
+                  AND b.status = 'confirmed'
+                """
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query, (flight_id,))
+            return cursor.fetchall()
+        finally:
+            cursor.close()
+
+    # def create_booking_transaction(self, booking_obj, tickets_list):
+    #     """
+    #     שמירת הזמנה + כרטיסים כטרנזקציה אחת (הכל או כלום).
+    #     """
+    #     cursor = self.connection.cursor()
+    #     try:
+    #         # 1. יצירת ההזמנה בטבלת bookings
+    #         q_booking = """
+    #                     INSERT INTO bookings (customers_email, registered_email, booking_date, status, total_price)
+    #                     VALUES (%s, %s, NOW(), 'Confirmed', %s) \
+    #                     """
+    #
+    #         # לוגיקה: אם המשתמש רשום, המייל נכנס גם ל-registered_email. אם אורח - הוא NULL.
+    #         cust_email = booking_obj['email']
+    #         reg_email = booking_obj['registered_email']  # יכול להיות None
+    #
+    #         cursor.execute(q_booking, (cust_email, reg_email, booking_obj['total_price']))
+    #         new_booking_id = cursor.lastrowid
+    #
+    #         # 2. יצירת הכרטיסים בטבלת tickets
+    #         q_ticket = """
+    #                    INSERT INTO tickets (id_booking, id_flight, passenger_name, passenger_passport,
+    #                                         class_type, row_number, seat_letter, price)
+    #                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s) \
+    #                    """
+    #
+    #         for t in tickets_list:
+    #             full_name = f"{t['first_name']} {t['last_name']}"
+    #             cursor.execute(q_ticket, (
+    #                 new_booking_id,
+    #                 t['flight_id'],
+    #                 full_name,
+    #                 t['passport'],
+    #                 t['class_type'],
+    #                 t['row_number'],
+    #                 t['seat_letter'],
+    #                 t['price']
+    #             ))
+    #
+    #         self.connection.commit()
+    #         return True, new_booking_id
+    #
+    #     except Exception as e:
+    #         self.connection.rollback()
+    #         print(f"Transaction Error: {e}")
+    #         return False, str(e)
+    #     finally:
+    #         cursor.close()
+
+    def get_full_user_details(self, email):
+        """שליפת פרטים למילוי אוטומטי בטופס (עבור משתמש רשום)"""
+        # שליפת פרטים אישיים
+        query_user = """ SELECT c.first_name_eng AS first_name,
+                                c.last_name_eng  AS last_name,
+                                c.email,
+                                r.passport
+                         FROM customers c
+                                  JOIN registered_customers r ON c.email = r.customers_email
+                         WHERE c.email = %s """
+
+        query_phones = "SELECT phone_number FROM phone_numbers WHERE customers_email = %s"
+
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query_user, (email,))
+            user_data = cursor.fetchone()
+
+            if user_data:
+                # שליפת טלפונים בנפרד
+                cursor.execute(query_phones, (email,))
+                phones = cursor.fetchall()
+                user_data['phone_numbers'] = [p['phone_number'] for p in phones]
+                return user_data
+            return {}
+        finally:
+            cursor.close()
+
+    def get_last_booking_id(self):
+        """פונקציית עזר לשליפת ה-ID הגבוה ביותר בטבלה"""
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute("SELECT MAX(id_booking) FROM bookings")
+            row = cursor.fetchone()
+            # מחזיר את המספר או None אם הטבלה ריקה
+            return row[0]
+        finally:
+            cursor.close()
+
+
+    def create_new_booking(self, user_email, is_registered, total_price, flight_id, passengers):
+        from utils import calculate_next_booking_id
+
+        print(f"--- STARTING BOOKING PROCESS FOR FLIGHT {flight_id} ---")  # לוג לבדיקה
+        cursor = self.connection.cursor()
+        try:
+            # 1. המרה למספר כדי למנוע בעיות טיפוסים
+            flight_id_int = int(flight_id)
+
+            # 2. שליפת המטוס עם שאילתה מפורשת
+            cursor.execute("SELECT id_plane FROM flights WHERE id_flight = %s", (flight_id_int,))
+            plane_row = cursor.fetchone()
+
+            if not plane_row:
+                # אם לא מצאנו, נדפיס הודעה לטרמינל ונזרוק שגיאה
+                print(f"CRITICAL ERROR: Flight ID {flight_id_int} exists in session but NOT in DB!")
+                raise Exception("Plane not found for this flight ID")
+
+            # שליפת ה-ID (תומך גם במילון וגם בטאפל)
+            if isinstance(plane_row, dict):
+                plane_id = plane_row['id_plane']
+            else:
+                plane_id = plane_row[0]
+
+            print(f"DEBUG: Found Plane ID: {plane_id}")
+
+            # 3. טיפול באורח (אם לא רשום)
+            if not is_registered:
+                cursor.execute("SELECT email FROM customers WHERE email = %s", (user_email,))
+                if not cursor.fetchone():
+                    # יצירת לקוח חדש בטבלת customers
+                    first_name = passengers[0]['first_name']
+                    last_name = passengers[0]['last_name']
+                    cursor.execute(
+                        "INSERT INTO customers (email, first_name_eng, last_name_eng) VALUES (%s, %s, %s)",
+                        (user_email, first_name, last_name)
+                    )
+
+                    # הוספת טלפונים
+                    contact_phones = passengers[0].get('contact_phone', [])
+                    if not isinstance(contact_phones, list):
+                        contact_phones = [contact_phones]
+                    for phone in contact_phones:
+                        if phone and str(phone).strip():
+                            cursor.execute("INSERT INTO phone_numbers (phone_number, customers_email) VALUES (%s, %s)",
+                                           (phone, user_email))
+
+                # הכנסה לטבלת אורחים (רק אם לא קיים כבר)
+                cursor.execute("SELECT customers_email FROM guest_customers WHERE customers_email = %s", (user_email,))
+                if not cursor.fetchone():
+                    cursor.execute("INSERT INTO guest_customers (customers_email) VALUES (%s)", (user_email,))
+
+            last_db_id = self.get_last_booking_id()
+            new_booking_id = calculate_next_booking_id(last_db_id)
+
+            # 4. יצירת ההזמנה
+            # 4. יצירת ההזמנה - התיקון הסופי
+            reg_email_val = user_email if is_registered else None
+
+            cursor.execute("""
+                           INSERT INTO bookings (id_booking, customers_email, registered_email, booking_date, status,
+                                                 total_price)
+                           VALUES (%s, %s, %s, NOW(), 'Confirmed', %s)
+                           """, (new_booking_id, user_email, reg_email_val, total_price))
+            # 5. יצירת הכרטיסים
+            q_ticket = """
+                       INSERT INTO tickets (id_booking, id_flight, passenger_name, passenger_passport,
+                                            class_type, `row_number`, seat_letter, id_plane)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s) 
+                       """
+            for p in passengers:
+                full_name = f"{p['first_name']} {p['last_name']}"
+                cursor.execute(q_ticket, (
+                    new_booking_id, flight_id_int, full_name, p['passport'],
+                    p['class_type'], p['row_number'], p['seat_letter'], plane_id))
+
+
+            self.connection.commit()
+            print("--- BOOKING SUCCESSFUL ---")
+            return True, new_booking_id
+
+        except Exception as e:
+            self.connection.rollback()
+            print(f"Error creating booking transaction: {e}")  # זה יודפס באדום בטרמינל
+            return False, str(e)
+        finally:
+            cursor.close()
+
+        # --- הוספות עבור ניהול משאבים (החלק של אופיר) ---
+
+    def add_resource(self, res_type, form):
+        cursor = self.connection.cursor()
+        try:
+            if res_type == 'aircraft':
+                cursor.execute("""
+                    INSERT INTO planes (id_plane, manufacturer, size, purchase_date)
+                    VALUES (%s, %s, %s, %s) 
+                """, (form.get('id_plane'), form.get('manufacturer'), form.get('size'), form.get('purchase_date')))
+
+            elif res_type in ['pilot', 'attendant']:
+                # קביעת שם הטבלה
+                table = "pilots" if res_type == 'pilot' else "flight_attendants"
+
+                # קליטת הצ'קבוקס (קיים עכשיו גם לדיילים)
+                long_haul = 1 if form.get('long_flights') else 0
+
+                # שאילתה אחת שטובה לשניהם
+                cursor.execute(f"""
+                    INSERT INTO {table} 
+                    (id_worker, first_name, last_name, phone_number, start_date, city, street, house_number, long_flights)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    form.get('id_worker'),
+                    form.get('first_name'),
+                    form.get('last_name'),
+                    form.get('phone'),  # ב-HTML השדה נקרא phone
+                    form.get('start_date'),
+                    form.get('city'),
+                    form.get('street'),
+                    form.get('house_number'),
+                    long_haul  # נכנס עכשיו גם לדיילים
+                ))
+
+            self.connection.commit()
+            return True
+        except Exception as e:
+            print(f"Error adding resource: {e}")
+            self.connection.rollback()
+            return False
+        finally:
+            cursor.close()
+
+    def update_resource(self, res_type, form):
+        cursor = self.connection.cursor()
+        try:
+            if res_type == 'aircraft':
+                cursor.execute("UPDATE planes SET manufacturer=%s WHERE id_plane=%s",
+                               (form.get('manufacturer'), form.get('id_plane')))
+
+            elif res_type in ['pilot', 'attendant']:
+                table = "pilots" if res_type == 'pilot' else "flight_attendants"
+                long_haul = 1 if form.get('long_flights') else 0
+
+                # שאילתת עדכון מאוחדת (כולל long_flights לשניהם)
+                cursor.execute(f"""
+                    UPDATE {table} 
+                    SET first_name=%s, last_name=%s, phone_number=%s, start_date=%s, 
+                        city=%s, street=%s, house_number=%s, long_flights=%s
+                    WHERE id_worker=%s
+                """, (
+                    form.get('first_name'),
+                    form.get('last_name'),
+                    form.get('phone'),
+                    form.get('start_date'),
+                    form.get('city'),
+                    form.get('street'),
+                    form.get('house_number'),
+                    long_haul,
+                    form.get('id_worker')
+                ))
+
+            self.connection.commit()
+            return True
+        except Exception as e:
+            print(f"Error updating resource: {e}")
+            self.connection.rollback()
+            return False
+        finally:
+            cursor.close()
+
+    def get_all_flight_attendants(self):
+        query = """ SELECT * FROM flight_attendants """
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query)  # מריץ את השאילתה
+            res = cursor.fetchall()  # מושך את כל הנתונים
+            return res  # מחזיר את המידע למודל
+        finally:
+            cursor.close()
+
+    def get_all_pilots(self):
+        query = """ SELECT * FROM pilots """
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query)
+            res = cursor.fetchall()
+            return res
+        finally:
+            cursor.close()
+
+    def get_all_planes(self):
+        query = """ SELECT * FROM planes """
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            cursor.execute(query)
+            res = cursor.fetchall()
+            return res
         finally:
             cursor.close()
